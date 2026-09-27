@@ -1,1 +1,23 @@
 /target
+
+# Credentials and local config must never be committed. Shellify keeps them
+# outside the repo (OS keychain, ~/.config/shellify, cache dir); these rules
+# catch copies that end up in the working tree by accident.
+.env
+.env.*
+*.pem
+*.key
+*.p8
+cookies.txt
+*cookies*.txt
+browser.json
+oauth*.json
+headers*.txt
+credentials*
+secrets*
+/config.toml
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/

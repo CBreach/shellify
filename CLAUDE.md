@@ -8,6 +8,15 @@ Shellify is a Rust terminal music client: a full-screen TUI with a vim-style `:`
 
 What exists now (roadmap step 1): the TUI skeleton, the command parser, the keymap, the config, the queue and the event loop, running on placeholder data from `src/app/demo.rs`. Playback is **simulated**: `App::on_tick` in `src/app/dispatch.rs` advances the position. The `Player` and `Provider` traits described below don't exist yet; they arrive in steps 2 and 3. Update this file as they land.
 
+## Public repo: credentials never live in the repo
+
+Shellify is a public, open-source project meant for anyone to clone and use with their own accounts. Consequences:
+- **No credentials in the source tree, ever.** That covers API keys, OAuth client secrets, tokens, cookies, pasted browser headers and session files. Each user supplies their own at runtime. Secrets are stored in the OS keychain (`keyring` crate); derived files that tools need (such as the yt-dlp cookie file) go in the user's cache dir with mode 0600, never under the repo.
+- **Never embed a developer's personal credentials as defaults.** When a provider needs an app registration (for example a Spotify client ID for OAuth PKCE), the user brings their own through `~/.config/shellify/config.toml`, and the README says how to get one.
+- Don't log secrets: redact tokens and cookies in `tracing` output.
+- Test fixtures must use obviously fake values.
+- Before committing, check `git diff --cached` for anything secret-looking. `.gitignore` also blocks common credential filenames as a backstop.
+
 ## Commands
 
 ```sh
