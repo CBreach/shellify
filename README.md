@@ -84,3 +84,7 @@ Shellify reads `~/.config/shellify/config.toml` (or `$XDG_CONFIG_HOME/shellify/c
 Shellify signs in to *your* accounts and ships with no credentials. Anything you provide (cookies, tokens, API client IDs) stays on your machine: in your OS keychain or your user config/cache directories, never in the project folder.
 
 Logs are written to your cache directory (`~/Library/Caches/shellify/` on macOS). Set `SHELLIFY_LOG=shellify=debug` for more detail.
+
+## License
+
+[MIT](LICENSE)
