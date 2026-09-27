@@ -135,6 +135,13 @@ fn preview(state: &AppState, theme: &Theme, row: SettingRow, muted: Style) -> Ve
             icons.knob,
             icons.bar_empty,
         ))],
+        SettingRow::ResizeCursor if !state.appearance.mouse => {
+            vec![Span::styled("(needs Mouse on)", muted)]
+        }
+        SettingRow::ResizeCursor => vec![Span::styled(
+            "pointer shape over pane borders (kitty, foot, Ghostty...)",
+            muted,
+        )],
         SettingRow::Mouse if state.appearance.mouse => vec![Span::styled(
             "click, double-click, scroll (Shift+drag selects text)",
             muted,

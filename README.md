@@ -121,13 +121,16 @@ Shellify honors [`NO_COLOR`](https://no-color.org) and `TERM=dumb`. Without colo
 color = "auto"     # auto (default) | always | never
 icons = "unicode"  # unicode (default) | ascii | nerd
 mouse = false      # click, double-click and scroll; also in the Settings tab
+resize_cursor = false  # resize pointer over pane borders (OSC 22 terminals)
 ```
 
 `ascii` draws everything with plain ASCII, including the borders, for legacy terminals and serial consoles. `nerd` uses [Nerd Font](https://www.nerdfonts.com) glyphs and requires a Nerd Font in your terminal. It's opt-in because terminals can't report which font they use.
 
 ### Mouse
 
-Mouse support is off by default. Turn it on under **Settings → Mouse** (or set `mouse = true` in `[ui]`). While it's on, your terminal's own click-and-drag text selection needs **Shift** held in most terminals. With it on, you can click to focus a pane or select a row, double-click to play or open, scroll to move the selection, click the header tabs, click the progress bar to seek, and **drag the border between two panes to resize them**. Draggable borders show a small `◂▸` grip and light up when you hover over them; double-click a border to reset it to its default width. Every mouse action also has a key.
+Mouse support is off by default. Turn it on under **Settings → Mouse** (or set `mouse = true` in `[ui]`). While it's on, your terminal's own click-and-drag text selection needs **Shift** held in most terminals. With it on, you can click to focus a pane or select a row, double-click to play or open, scroll to move the selection, click the header tabs, click the progress bar to seek, and **drag the border between two panes to resize them**. Draggable borders show a small `◂▸` grip and light up when you hover over them; double-click a border to reset it to its default width.
+
+Optionally, **Settings → Resize cursor** (`[ui] resize_cursor = true`) also changes the mouse pointer to a left-right resize arrow over pane borders. It uses the OSC 22 escape sequence, which terminals such as kitty, foot and Ghostty support. Others ignore it, and inside tmux it usually has no effect. It's off by default, and Shellify only sends the sequence when it's turned on. Every mouse action also has a key.
 
 ## Your accounts & privacy
 

@@ -44,6 +44,7 @@ async fn main() -> Result<()> {
     let restore_terminal = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         app::set_mouse_capture(false);
+        app::pointer::restore();
         restore_terminal(info);
     }));
     let result = app.run(terminal).await;

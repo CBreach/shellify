@@ -268,6 +268,8 @@ impl App {
             self.mouse_captured = a.mouse;
             set_mouse_capture(a.mouse);
         }
+        // The pointer setting (or mouse) may just have been switched off.
+        self.sync_pointer();
         let a = &self.state.appearance;
         match config::save_appearance(&self.config_path, a) {
             Ok(()) => {

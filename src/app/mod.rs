@@ -2,6 +2,7 @@ pub mod action;
 mod demo;
 mod dispatch;
 mod mouse;
+pub(crate) mod pointer;
 pub mod queue;
 pub mod settings;
 pub mod state;
@@ -72,6 +73,7 @@ impl App {
             color: config.ui.color,
             icons: config.ui.icons,
             mouse: config.ui.mouse,
+            resize_cursor: config.ui.resize_cursor,
             panes: PaneSizes {
                 library: config
                     .ui
@@ -126,6 +128,7 @@ impl App {
         }
         // Always release the mouse, or the shell keeps receiving escape codes.
         set_mouse_capture(false);
+        pointer::restore();
         Ok(())
     }
 

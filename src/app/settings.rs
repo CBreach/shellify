@@ -14,6 +14,8 @@ pub struct Appearance {
     /// Mouse capture: click, double-click and scroll. Off by default because
     /// it takes over the terminal's own click-drag text selection.
     pub mouse: bool,
+    /// Ask the terminal for a resize pointer over pane borders (OSC 22).
+    pub resize_cursor: bool,
     /// Side pane widths, set by dragging pane borders or `:resize`.
     pub panes: PaneSizes,
 }
@@ -29,6 +31,7 @@ pub enum SettingRow {
     Icons,
     Color,
     Mouse,
+    ResizeCursor,
     Reset,
 }
 
@@ -53,7 +56,7 @@ pub const NAMED_COLORS: &[&str] = &[
 ];
 
 impl SettingRow {
-    pub const ALL: [SettingRow; 10] = [
+    pub const ALL: [SettingRow; 11] = [
         SettingRow::Preset,
         SettingRow::Accent,
         SettingRow::Text,
@@ -63,6 +66,7 @@ impl SettingRow {
         SettingRow::Icons,
         SettingRow::Color,
         SettingRow::Mouse,
+        SettingRow::ResizeCursor,
         SettingRow::Reset,
     ];
 
@@ -77,6 +81,7 @@ impl SettingRow {
             Self::Icons => "Icons",
             Self::Color => "Color",
             Self::Mouse => "Mouse",
+            Self::ResizeCursor => "Resize cursor",
             Self::Reset => "Reset all settings to defaults",
         }
     }
@@ -121,6 +126,7 @@ impl Appearance {
             SettingRow::Icons => self.icons.label().into(),
             SettingRow::Color => self.color.label().into(),
             SettingRow::Mouse => if self.mouse { "on" } else { "off" }.into(),
+            SettingRow::ResizeCursor => if self.resize_cursor { "on" } else { "off" }.into(),
             SettingRow::Reset => String::new(),
         }
     }
@@ -137,6 +143,7 @@ impl Appearance {
             SettingRow::Icons => self.icons = cycle(&IconPack::ALL, &self.icons, delta),
             SettingRow::Color => self.color = cycle(&ColorMode::ALL, &self.color, delta),
             SettingRow::Mouse => self.mouse = !self.mouse,
+            SettingRow::ResizeCursor => self.resize_cursor = !self.resize_cursor,
             SettingRow::Reset => {}
             color_row => {
                 let slot = self.color_slot(color_row).expect("color row");
@@ -207,5 +214,8 @@ mod tests {
         assert_eq!(a.value_label(SettingRow::Mouse), "on");
         a.step(SettingRow::Mouse, -1);
         assert!(!a.mouse);
+        a.step(SettingRow::ResizeCursor, 1);
+        assert!(a.resize_cursor);
+        assert_eq!(a.value_label(SettingRow::ResizeCursor), "on");
     }
 }

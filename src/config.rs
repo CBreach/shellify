@@ -28,6 +28,7 @@ pub struct UiConfig {
     pub color: ColorMode,
     pub icons: IconPack,
     pub mouse: bool,
+    pub resize_cursor: bool,
     /// Side pane widths in percent of the window (see `PaneSizes`).
     pub library_width: Option<u16>,
     pub queue_width: Option<u16>,
@@ -91,6 +92,10 @@ pub fn save_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
         ),
         ("mouse", appearance.mouse.then(|| true.into())),
         (
+            "resize_cursor",
+            appearance.resize_cursor.then(|| true.into()),
+        ),
+        (
             "library_width",
             (panes.library != default_panes.library).then(|| i64::from(panes.library).into()),
         ),
@@ -151,6 +156,7 @@ mod tests {
             },
             icons: IconPack::Ascii,
             mouse: true,
+            resize_cursor: true,
             panes: PaneSizes {
                 library: 30,
                 queue: 28,
@@ -176,6 +182,8 @@ mod tests {
         assert_eq!(loaded.ui.icons, IconPack::Ascii);
         assert!(loaded.ui.mouse);
         assert!(saved.contains("mouse = true"), "{saved}");
+        assert!(saved.contains("resize_cursor = true"), "{saved}");
+        assert!(loaded.ui.resize_cursor);
         assert!(saved.contains("library_width = 30"), "{saved}");
         assert!(
             !saved.contains("queue_width"),

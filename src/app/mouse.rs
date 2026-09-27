@@ -13,9 +13,9 @@ use std::time::{Duration, Instant};
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 
-use super::App;
 use super::action::{Action, Pane, Resize, Seek, Select, View};
 use super::state::Mode;
+use super::{App, pointer};
 use crate::ui::layout::PaneSizes;
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
@@ -60,6 +60,7 @@ impl App {
                 // Save once, when the drag ends, not on every motion event.
                 if self.state.divider_drag.take().is_some() {
                     self.save_pane_sizes();
+                    self.sync_pointer();
                 }
             }
             MouseEventKind::Moved => self.hover(pos),
@@ -117,6 +118,18 @@ impl App {
         }
     }
 
+    /// Shows the resize pointer while a border is hovered or dragged, if the
+    /// user opted in (see `pointer`).
+    pub(super) fn sync_pointer(&self) {
+        let a = &self.state.appearance;
+        let over_border = self
+            .state
+            .divider_hover
+            .or(self.state.divider_drag)
+            .is_some();
+        pointer::set_resize(a.mouse && a.resize_cursor && over_border);
+    }
+
     fn divider_at(&self, pos: Position) -> Option<Pane> {
         let hits = &self.state.hits.dividers;
         hits.iter()
@@ -132,6 +145,7 @@ impl App {
             if over.is_some() && self.state.divider_drag.is_none() {
                 self.state.info("Drag to resize, double-click to reset");
             }
+            self.sync_pointer();
         }
     }
 
@@ -147,6 +161,7 @@ impl App {
         } else {
             self.last_click = Some((pos, Instant::now()));
             self.state.divider_drag = Some(pane);
+            self.sync_pointer();
         }
     }
 
@@ -484,6 +499,32 @@ mod tests {
             app.state.appearance.panes.queue, 20,
             "only that border resets"
         );
+    }
+
+    /// The only test that turns the resize pointer on, since the pointer
+    /// state is process-global.
+    #[test]
+    fn resize_pointer_follows_hover_only_when_opted_in() {
+        let mut app = app_with_mouse(true);
+        draw(&mut app, 100, 30);
+        let (border, _) = app.state.hits.dividers[0];
+        let over = (border.x, border.y + 2);
+
+        mouse(&mut app, MouseEventKind::Moved, over.0, over.1);
+        assert!(!pointer::is_resize(), "off by default");
+        mouse(&mut app, MouseEventKind::Moved, 50, over.1);
+
+        app.state.appearance.resize_cursor = true;
+        mouse(&mut app, MouseEventKind::Moved, over.0, over.1);
+        assert!(pointer::is_resize());
+        mouse(&mut app, MouseEventKind::Moved, 50, over.1);
+        assert!(!pointer::is_resize(), "restored when the pointer leaves");
+
+        // Turning the option off while hovering restores it right away.
+        mouse(&mut app, MouseEventKind::Moved, over.0, over.1);
+        app.state.appearance.resize_cursor = false;
+        app.sync_pointer();
+        assert!(!pointer::is_resize());
     }
 
     #[test]
