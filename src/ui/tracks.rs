@@ -6,7 +6,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Cell, Paragraph, Row, Table, Wrap};
 
-use super::text::truncate;
+use super::text::{spinner, truncate};
 use super::{fmt_duration, highlight_style, pane_block};
 use crate::app::action::Pane;
 use crate::app::state::AppState;
@@ -16,26 +16,42 @@ const COLUMN_SPACING: u16 = 1;
 
 pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) {
     let total: Duration = state.tracks.iter().map(|t| t.duration).sum();
-    let title = format!(
-        "{} {sep} {} tracks {sep} {} min",
-        state.tracks_title,
-        state.tracks.len(),
-        total.as_secs() / 60,
-        sep = theme.icons.sep,
-    );
+    let title = if state.tracks_loading {
+        state.tracks_title.clone()
+    } else {
+        format!(
+            "{} {sep} {} tracks {sep} {} min",
+            state.tracks_title,
+            state.tracks.len(),
+            total.as_secs() / 60,
+            sep = theme.icons.sep,
+        )
+    };
     let block = pane_block(title, Pane::Tracks, state, theme);
 
     if state.tracks.is_empty() {
         let inner = block.inner(area);
         frame.render_widget(block, area);
-        let msg = Paragraph::new(vec![
-            Line::from(""),
-            Line::from("Nothing here"),
-            Line::from("Press / to search, or pick a playlist"),
-        ])
-        .alignment(Alignment::Center)
-        .wrap(Wrap { trim: true })
-        .style(Style::new().fg(theme.muted));
+        let lines = if state.tracks_loading {
+            vec![
+                Line::from(""),
+                Line::from(format!(
+                    "{} Loading{}",
+                    spinner(theme.icons.spinner),
+                    theme.icons.ellipsis
+                )),
+            ]
+        } else {
+            vec![
+                Line::from(""),
+                Line::from("Nothing here"),
+                Line::from("Press / to search, or pick a playlist"),
+            ]
+        };
+        let msg = Paragraph::new(lines)
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true })
+            .style(Style::new().fg(theme.muted));
         frame.render_widget(msg, inner);
         return;
     }

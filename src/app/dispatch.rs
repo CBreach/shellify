@@ -8,10 +8,10 @@ use super::action::{
 };
 use super::settings::SettingRow;
 use super::state::{Mode, StatusLevel};
-use super::{App, demo, set_mouse_capture};
+use super::{App, set_mouse_capture};
 use crate::config;
 use crate::player::{EndReason, PlayerEvent};
-use crate::provider::{ProviderKind, Track};
+use crate::provider::{ProviderKind, Source, Track};
 use crate::themes;
 use crate::ui::layout::PaneSizes;
 use crate::ui::theme::{Theme, parse_color, theme_ids};
@@ -118,16 +118,7 @@ impl App {
             }
 
             Action::PlaySelected => self.play_selected(),
-            Action::PlayQuery(query) => {
-                let results = demo::search(&self.state.library, &query);
-                if results.is_empty() {
-                    self.state.error(format!("no results for {query:?}"));
-                    return;
-                }
-                self.state.queue.play_list(results.clone(), 0);
-                self.state.show_tracks(format!("Search: {query}"), results);
-                self.start_current();
-            }
+            Action::PlayQuery(query) => self.search(query, true),
             Action::AddSelected => self.add_selected(),
             Action::ClearQueue => {
                 self.state.queue.clear();
@@ -138,12 +129,7 @@ impl App {
                 self.state.queue.shuffle();
                 self.state.info("queue shuffled");
             }
-            Action::Search(query) => {
-                let results = demo::search(&self.state.library, &query);
-                self.state
-                    .info(format!("{} results for {query:?}", results.len()));
-                self.state.show_tracks(format!("Search: {query}"), results);
-            }
+            Action::Search(query) => self.search(query, false),
             Action::OpenSearch => {
                 self.state.status = None;
                 self.state.search_line.clear();
@@ -481,13 +467,7 @@ impl App {
         let (selected, _) = self.state.selection(self.state.focus);
         let Some(index) = selected else { return };
         match self.state.focus {
-            Pane::Library => {
-                let Some(playlist) = self.state.library.get(index) else {
-                    return;
-                };
-                let (name, tracks) = (playlist.name.clone(), playlist.tracks.clone());
-                self.state.show_tracks(name, tracks);
-            }
+            Pane::Library => self.open_playlist(index),
             Pane::Tracks => {
                 if index < self.state.tracks.len() {
                     self.state.queue.play_list(self.state.tracks.clone(), index);
@@ -519,7 +499,7 @@ impl App {
             title,
             artist: String::new(),
             duration: Duration::ZERO,
-            source: Some(source),
+            source: Source::Direct(source),
         });
         self.state.queue.jump(self.state.queue.tracks().len() - 1);
         self.start_current();
@@ -528,21 +508,16 @@ impl App {
     fn add_selected(&mut self) {
         let (selected, _) = self.state.selection(self.state.focus);
         let Some(index) = selected else { return };
-        let added: Vec<_> = match self.state.focus {
-            Pane::Library => self
-                .state
-                .library
-                .get(index)
-                .map(|p| p.tracks.clone())
-                .unwrap_or_default(),
-            Pane::Tracks => self.state.tracks.get(index).cloned().into_iter().collect(),
-            Pane::Queue => return,
-        };
-        let n = added.len();
-        for track in added {
-            self.state.queue.push(track);
+        match self.state.focus {
+            Pane::Library => self.add_playlist(index),
+            Pane::Tracks => {
+                if let Some(track) = self.state.tracks.get(index).cloned() {
+                    self.state.queue.push(track);
+                    self.state.info("added 1 track(s) to the queue");
+                }
+            }
+            Pane::Queue => {}
         }
-        self.state.info(format!("added {n} track(s) to the queue"));
     }
 
     fn seek(&mut self, seek: Seek) {
@@ -571,7 +546,7 @@ impl App {
 
     /// Starts the queue's current track from the beginning, or stops playback
     /// if there is none.
-    fn start_current(&mut self) {
+    pub(super) fn start_current(&mut self) {
         self.state
             .queue_state
             .select(self.state.queue.current_index());
@@ -588,7 +563,10 @@ impl App {
             }
             return;
         };
-        let source = demo::playback_source(track);
+        let source = match self.playback_source(track) {
+            Ok(source) => source,
+            Err(e) => return self.on_track_failed(&e),
+        };
         match &mut self.player {
             Some(player) => {
                 tracing::info!(%source, "loading");
@@ -672,44 +650,9 @@ fn expand_home(path: &str) -> std::path::PathBuf {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use async_trait::async_trait;
-
     use super::*;
+    use crate::app::testing::FakePlayer;
     use crate::config::Config;
-    use crate::player::{LoadId, Player};
-
-    /// Records what the app asked the player to do.
-    #[derive(Default)]
-    struct FakePlayer {
-        calls: Arc<Mutex<Vec<String>>>,
-        loads: LoadId,
-    }
-
-    #[async_trait]
-    impl Player for FakePlayer {
-        fn load(&mut self, source: &str) -> LoadId {
-            self.loads += 1;
-            self.calls.lock().unwrap().push(format!("load {source}"));
-            self.loads
-        }
-        fn set_pause(&mut self, paused: bool) {
-            self.calls.lock().unwrap().push(format!("pause {paused}"));
-        }
-        fn seek(&mut self, position: Duration) {
-            let secs = position.as_secs();
-            self.calls.lock().unwrap().push(format!("seek {secs}"));
-        }
-        fn set_volume(&mut self, volume: u8) {
-            self.calls.lock().unwrap().push(format!("volume {volume}"));
-        }
-        fn stop(&mut self) {
-            self.calls.lock().unwrap().push("stop".into());
-        }
-        fn set_metering(&mut self, on: bool) {
-            self.calls.lock().unwrap().push(format!("metering {on}"));
-        }
-        async fn shutdown(&mut self) {}
-    }
 
     fn app() -> (App, Arc<Mutex<Vec<String>>>) {
         let config_path = std::env::temp_dir().join("shellify-test-config.toml");

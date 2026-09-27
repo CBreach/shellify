@@ -72,7 +72,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) -> O
 
     let playback = &state.playback;
     let glyph = if playback.loading {
-        spinner_frame(icons.spinner)
+        super::text::spinner(icons.spinner)
     } else if playback.paused {
         icons.paused
     } else {
@@ -178,12 +178,4 @@ fn progress_line(
         Span::styled(icons.bar_empty.repeat(empty), muted),
         Span::styled(format!(" {total} "), muted),
     ])
-}
-
-/// Spinner frame driven by the clock; the app redraws on every tick.
-fn spinner_frame(frames: &[&'static str]) -> &'static str {
-    let millis = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis());
-    frames[(millis / 250 % frames.len() as u128) as usize]
 }

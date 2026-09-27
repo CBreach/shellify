@@ -25,6 +25,37 @@ pub fn truncate<'a>(s: &'a str, max: usize, ellipsis: &str) -> Cow<'a, str> {
     Cow::Owned(out)
 }
 
+/// Word-wraps `s` into lines of at most `width` cells. Words longer than a
+/// line are truncated rather than split.
+pub fn wrap(s: &str, width: usize, ellipsis: &str) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for word in s.split_whitespace() {
+        let word = truncate(word, width, ellipsis);
+        let needed = if line.is_empty() { 0 } else { line.width() + 1 };
+        if !line.is_empty() && needed + word.width() > width {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(&word);
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
+/// The loading spinner's current frame, driven by the clock (the app redraws
+/// on every tick).
+pub fn spinner(frames: &[&'static str]) -> &'static str {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    frames[(millis / 250 % frames.len() as u128) as usize]
+}
+
 /// Splits a `width`-cell progress bar at `ratio` into (filled, knob, empty)
 /// cell counts. The knob always takes one cell when there is room.
 pub fn progress_split(ratio: f64, width: usize) -> (usize, usize, usize) {
@@ -59,6 +90,19 @@ mod tests {
         let t = truncate("夜に駆ける", 6, "…");
         assert_eq!(t, "夜に…");
         assert!(t.width() <= 6);
+    }
+
+    #[test]
+    fn wrap_breaks_between_words_within_width() {
+        assert_eq!(
+            wrap("These are demo tracks for trying things", 12, "…"),
+            ["These are", "demo tracks", "for trying", "things"]
+        );
+        assert_eq!(wrap("a verylongword b", 5, "…"), ["a", "very…", "b"]);
+        assert!(wrap("", 10, "…").is_empty());
+        for line in wrap("夜に駆ける 夜に駆ける", 6, "…") {
+            assert!(line.width() <= 6, "{line}");
+        }
     }
 
     #[test]
