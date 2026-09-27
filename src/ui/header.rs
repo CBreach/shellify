@@ -8,7 +8,7 @@ use super::theme::Theme;
 use crate::app::action::{Pane, View};
 use crate::app::state::AppState;
 
-/// Top line: app name, the Music/Settings tabs, and a pane switcher when
+/// Top line: app name, the Music/Settings/Providers tabs, and a pane switcher when
 /// only one pane fits. Returns where each tab was drawn, for mouse clicks.
 pub fn draw(
     frame: &mut Frame,
@@ -26,7 +26,7 @@ pub fn draw(
             Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
         ));
     }
-    for (view, label) in [View::Music, View::Settings]
+    for (view, label) in [View::Music, View::Settings, View::Providers]
         .into_iter()
         .zip(&state.tab_labels)
     {

@@ -58,7 +58,8 @@ cargo run --release
 | `r` | Cycle repeat (off → all → one) |
 | `/` | Search |
 | `?` | Help: every key and command |
-| `1` / `2` | Music / Settings tab |
+| `v` / `V` | Toggle the visualizer / next style |
+| `1` / `2` / `3` | Music / Settings / Providers tab |
 | `:` | Command mode |
 | `q` | Quit |
 
@@ -79,9 +80,11 @@ Press `:` then type a command. Tab completes command names, and ↑/↓ browse h
 | `:open <url-or-file>` | Play a URL (anything yt-dlp supports) or a local audio file |
 | `:queue`, `:focus <pane>` | Jump to a pane |
 | `:help` | Show the help overlay |
-| `:settings`, `:view <music\|settings>` | Switch tab |
+| `:settings`, `:providers`, `:view <music\|settings\|providers>` | Switch tab |
 | `:resize library 30`, `:resize queue +5`, `:resize reset` | Set a side pane's width (% of the window) |
 | `:theme <name>`, `:theme import <file>`, `:theme reload` | Switch, import or reload color themes |
+| `:visualizer [on\|off\|next\|bars\|mirror\|wave\|dots]` | Toggle the visualizer or pick its style |
+| `:visualizer fade [on\|off]` | Make the visualizer fade in and out |
 | `:q` | Quit |
 
 ## Configuration
@@ -99,9 +102,15 @@ Shellify reads `~/.config/shellify/config.toml` (or `$XDG_CONFIG_HOME/shellify/c
 
 Press `2` (or `:settings`) to open **Settings**. There you can pick a theme preset, change any color, switch icon pack and set the color mode, and you see the result as you go. Use `j`/`k` to move between rows and `h`/`l` (or ←/→) to change a value. Press `Enter` on a color to type a name or `#hex`. Press `1` or `Esc` to go back to the music. Every change is saved to your `config.toml`, and your key bindings and comments there are left untouched.
 
+### Providers tab
+
+Press `3` (or `:providers`) to see the streaming services Shellify supports: YouTube Music, Spotify and Apple Music, each with a pixel-art logo. The highlighted one bounces. Move with `h`/`l` (or the arrows, or `j`/`k`), then press `Enter`, or click a card with the mouse on, to open its setup screen. Sign-in isn't built yet, so for now the setup screen tells you what setup will need.
+
+Choosing a provider also switches Shellify to that provider's colors: red for YouTube Music, green for Spotify, pink for Apple Music. You can pick another theme in Settings at any time.
+
 ### Themes
 
-Pick a preset (`default`, `nord`, `gruvbox`, `catppuccin`) and optionally override individual colors. A color can be a name (`cyan`, `light-blue`), `#rrggbb` or an ANSI index (`0`–`255`).
+Pick a preset (`default`, `nord`, `gruvbox`, `catppuccin`, or a provider theme: `youtube-music`, `spotify`, `apple-music`) and optionally override individual colors. A color can be a name (`cyan`, `light-blue`), `#rrggbb` or an ANSI index (`0`–`255`).
 
 ```toml
 [theme]
@@ -112,6 +121,30 @@ accent = "#f5c2e7"      # focused borders, selection, progress bar
 # error = "red"
 # selection_fg = "black"  # text drawn on the accent color
 ```
+
+### Visualizer
+
+Press `v` (or `:visualizer`) to show an animated visualizer in the Now Playing panel, and `V` to cycle its style:
+
+- **bars**: vertical bars with falling peak caps
+- **mirror**: bars growing up and down from a center line
+- **wave**: an oscilloscope-style line
+- **dots**: bouncing dots with peak markers
+
+Turn on **fade** (`:visualizer fade`) and the bars fade in as they rise and fade out as they fall, leaving a short trail. The wave leaves fading echoes instead, and the dots leave tails. True-color themes fade smoothly. Other themes step through dimmer styles and lighter shade glyphs, which also works without color.
+
+You can also set it in **Settings → Visualizer**, with `:visualizer [on|off|next|bars|mirror|wave|dots]`, or in the config:
+
+```toml
+[ui]
+visualizer = true
+visualizer_style = "wave"
+visualizer_fade = true
+```
+
+It reacts to the music you're playing: mpv measures the loudness (with FFmpeg's `astats`, which leaves the audio untouched), so the bars rise and punch with the track. mpv doesn't expose a frequency spectrum, so how that energy spreads across the bars is a smooth animated pattern, not a true spectrum analyzer. Without mpv, it just drifts gently.
+
+It needs a window at least 26 rows tall and hides itself in smaller ones. It animates at about 30fps only while music plays or it's still settling; when paused or off, it costs nothing. It works with `NO_COLOR` and the ascii icon pack.
 
 ### Custom themes
 

@@ -17,7 +17,10 @@ use tokio::process::{Child, Command as ProcessCommand};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use super::ipc::{Command, Incoming, OBSERVE_DURATION, OBSERVE_PAUSE, OBSERVE_TIME_POS};
+use super::ipc::{
+    Command, Incoming, METER_FILTER, METER_LABEL, METER_PROPERTY, OBSERVE_DURATION, OBSERVE_LEVELS,
+    OBSERVE_PAUSE, OBSERVE_TIME_POS,
+};
 use super::{EndReason, LoadId, Player, PlayerEvent};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -50,6 +53,7 @@ pub struct MpvPlayer {
     socket_path: Option<PathBuf>,
     shutting_down: Arc<AtomicBool>,
     tasks: Vec<JoinHandle<()>>,
+    metering: bool,
 }
 
 impl MpvPlayer {
@@ -143,6 +147,8 @@ impl MpvPlayer {
             (OBSERVE_TIME_POS, "time-pos"),
             (OBSERVE_DURATION, "duration"),
             (OBSERVE_PAUSE, "pause"),
+            // Reports nothing until the meter filter is added.
+            (OBSERVE_LEVELS, METER_PROPERTY),
         ] {
             let _ = commands.send((Command::Observe(id, name), 0));
         }
@@ -154,6 +160,7 @@ impl MpvPlayer {
             socket_path: None,
             shutting_down,
             tasks: vec![writer, reader],
+            metering: false,
         }
     }
 
@@ -209,6 +216,18 @@ impl Player for MpvPlayer {
 
     fn stop(&mut self) {
         self.send(Command::Stop);
+    }
+
+    fn set_metering(&mut self, on: bool) {
+        if on == self.metering {
+            return;
+        }
+        self.metering = on;
+        if on {
+            self.send(Command::AddAudioFilter(METER_FILTER));
+        } else {
+            self.send(Command::RemoveAudioFilter(METER_LABEL));
+        }
     }
 
     async fn shutdown(&mut self) {
@@ -367,13 +386,42 @@ impl Tracker {
                 .map(PlayerEvent::Paused)
                 .into_iter()
                 .collect(),
+            OBSERVE_LEVELS => parse_levels(&data).into_iter().collect(),
             _ => vec![],
         }
     }
 }
 
+/// `af-metadata` from the meter: string values like `"-23.5"` or `"-inf"`.
+fn parse_levels(data: &Value) -> Option<PlayerEvent> {
+    let db = |key: &str| data.get(key)?.as_str()?.trim().parse::<f32>().ok();
+    Some(PlayerEvent::Levels {
+        rms_db: db("lavfi.astats.Overall.RMS_level")?,
+        peak_db: db("lavfi.astats.Overall.Peak_level")?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn parses_meter_levels() {
+        let data = serde_json::json!({
+            "lavfi.astats.Overall.RMS_level": "-23.5",
+            "lavfi.astats.Overall.Peak_level": "-inf",
+        });
+        match parse_levels(&data) {
+            Some(PlayerEvent::Levels { rms_db, peak_db }) => {
+                assert_eq!(rms_db, -23.5);
+                assert!(peak_db.is_infinite() && peak_db < 0.0);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(parse_levels(&serde_json::Value::Null).is_none());
+        assert!(
+            parse_levels(&serde_json::json!({"lavfi.astats.Overall.RMS_level": "x"})).is_none()
+        );
+    }
+
     use serde_json::json;
     use tokio::io::AsyncBufReadExt;
 
@@ -517,7 +565,7 @@ mod tests {
             serde_json::from_str(&line).unwrap()
         };
 
-        for name in ["time-pos", "duration", "pause"] {
+        for name in ["time-pos", "duration", "pause", METER_PROPERTY] {
             assert_eq!(next_command().await["command"][2], json!(name));
         }
 
@@ -631,5 +679,48 @@ mod tests {
             .unwrap()
             .success();
         assert!(!alive, "mpv process still running");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs mpv installed; run with `cargo test -- --ignored`"]
+    async fn real_mpv_meter_reports_loudness_that_tracks_the_audio() {
+        let (tx, mut events) = mpsc::unbounded_channel();
+        let options = MpvOptions {
+            extra_args: vec!["--ao=null".into()],
+            ..Default::default()
+        };
+        let mut player = MpvPlayer::spawn(options, tx).await.unwrap();
+        player.set_metering(true);
+        // A tone that fades in over two seconds.
+        player.load("av://lavfi:sine=frequency=440:duration=2,volume=volume='t/2':eval=frame");
+
+        let mut readings = Vec::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+        while readings.len() < 12 {
+            let event = tokio::time::timeout_at(deadline, events.recv())
+                .await
+                .expect("no loudness readings from mpv")
+                .unwrap();
+            if let PlayerEvent::Levels { rms_db, .. } = event {
+                readings.push(rms_db);
+            }
+        }
+        let early: f32 = readings[1..4].iter().sum::<f32>() / 3.0;
+        let late: f32 = readings[readings.len() - 3..].iter().sum::<f32>() / 3.0;
+        assert!(late > early + 3.0, "fade-in not reflected: {readings:?}");
+
+        // Switching the meter off stops the readings.
+        player.set_metering(false);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        while events.try_recv().is_ok() {}
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let mut more = 0;
+        while let Ok(event) = events.try_recv() {
+            if matches!(event, PlayerEvent::Levels { .. }) {
+                more += 1;
+            }
+        }
+        assert_eq!(more, 0, "meter still reporting after being removed");
+        player.shutdown().await;
     }
 }

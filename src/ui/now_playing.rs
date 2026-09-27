@@ -25,6 +25,23 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) -> O
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    // The visualizer, when on and given room by the layout, sits above the
+    // track line.
+    let inner = if state.appearance.visualizer && inner.height > 2 {
+        let [viz, rest] =
+            Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).areas(inner);
+        super::visualizer::draw(
+            frame,
+            viz,
+            &state.visualizer,
+            state.appearance.visualizer_style,
+            state.appearance.visualizer_fade,
+            theme,
+        );
+        rest
+    } else {
+        inner
+    };
     let [info, progress] =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(inner);
 

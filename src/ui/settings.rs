@@ -41,6 +41,10 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) -> V
     let mut row_lines = Vec::new();
     for (i, &row) in SettingRow::ALL.iter().enumerate() {
         match row {
+            SettingRow::Visualizer => {
+                lines.push(Line::from(""));
+                lines.push(Line::styled(" Visualizer", heading));
+            }
             SettingRow::Mouse => {
                 lines.push(Line::from(""));
                 lines.push(Line::styled(" Behavior", heading));
@@ -151,6 +155,17 @@ fn preview(state: &AppState, theme: &Theme, row: SettingRow, muted: Style) -> Ve
             icons.knob,
             icons.bar_empty,
         ))],
+        SettingRow::Visualizer => vec![Span::styled(
+            "in Now Playing; needs a window at least 26 rows tall (v)",
+            muted,
+        )],
+        SettingRow::VisualizerStyle => {
+            vec![Span::styled("bars, mirror, wave or dots (V cycles)", muted)]
+        }
+        SettingRow::VisualizerFade => vec![Span::styled(
+            "bars fade in and out, leaving a trail (:viz fade)",
+            muted,
+        )],
         SettingRow::ResizeCursor if !state.appearance.mouse => {
             vec![Span::styled("(needs Mouse on)", muted)]
         }

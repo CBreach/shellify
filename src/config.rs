@@ -7,6 +7,7 @@ use serde::Deserialize;
 use toml_edit::{DocumentMut, Value};
 
 use crate::app::settings::Appearance;
+use crate::app::visualizer::VizStyle;
 use crate::ui::icons::IconPack;
 use crate::ui::layout::PaneSizes;
 use crate::ui::theme::{ColorMode, ThemeConfig};
@@ -29,6 +30,9 @@ pub struct UiConfig {
     pub icons: IconPack,
     pub mouse: bool,
     pub resize_cursor: bool,
+    pub visualizer: bool,
+    pub visualizer_style: VizStyle,
+    pub visualizer_fade: bool,
     /// Side pane widths in percent of the window (see `PaneSizes`).
     pub library_width: Option<u16>,
     pub queue_width: Option<u16>,
@@ -95,6 +99,16 @@ pub fn save_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
             "resize_cursor",
             appearance.resize_cursor.then(|| true.into()),
         ),
+        ("visualizer", appearance.visualizer.then(|| true.into())),
+        (
+            "visualizer_style",
+            (appearance.visualizer_style != VizStyle::default())
+                .then(|| appearance.visualizer_style.label().into()),
+        ),
+        (
+            "visualizer_fade",
+            appearance.visualizer_fade.then(|| true.into()),
+        ),
         (
             "library_width",
             (panes.library != default_panes.library).then(|| i64::from(panes.library).into()),
@@ -157,6 +171,9 @@ mod tests {
             icons: IconPack::Ascii,
             mouse: true,
             resize_cursor: true,
+            visualizer: true,
+            visualizer_style: VizStyle::Wave,
+            visualizer_fade: true,
             panes: PaneSizes {
                 library: 30,
                 queue: 28,
@@ -184,6 +201,11 @@ mod tests {
         assert!(saved.contains("mouse = true"), "{saved}");
         assert!(saved.contains("resize_cursor = true"), "{saved}");
         assert!(loaded.ui.resize_cursor);
+        assert!(loaded.ui.visualizer);
+        assert_eq!(loaded.ui.visualizer_style, VizStyle::Wave);
+        assert!(saved.contains("visualizer_style = \"wave\""), "{saved}");
+        assert!(saved.contains("visualizer_fade = true"), "{saved}");
+        assert!(loaded.ui.visualizer_fade);
         assert!(saved.contains("library_width = 30"), "{saved}");
         assert!(
             !saved.contains("queue_width"),

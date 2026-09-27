@@ -58,6 +58,18 @@ pub struct Icons {
     pub swatch: &'static str,
     /// Drawn across a draggable pane border (two cells: left, right).
     pub grip: [&'static str; 2],
+    /// Visualizer bar tops, from empty to a full cell in eighths.
+    pub viz_ramp: [&'static str; 9],
+    /// Visualizer half cells for the mirror style: (upper half, lower half).
+    pub viz_half: [&'static str; 2],
+    /// Visualizer peak cap.
+    pub viz_peak: &'static str,
+    /// Visualizer dot/line mark when braille can't be used.
+    pub viz_mark: &'static str,
+    /// Fading visualizer cells, faintest first.
+    pub viz_shade: [&'static str; 3],
+    /// Whether braille dots (smooth wave and dots styles) can be used.
+    pub braille: bool,
     pub border: border::Set<'static>,
     /// Border for the focused pane when there is no color to mark it.
     pub border_focus: border::Set<'static>,
@@ -78,6 +90,12 @@ const UNICODE: Icons = Icons {
     sep: "·",
     swatch: "███",
     grip: ["◂", "▸"],
+    viz_ramp: [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"],
+    viz_half: ["▀", "▄"],
+    viz_peak: "▔",
+    viz_mark: "•",
+    viz_shade: ["░", "▒", "▓"],
+    braille: true,
     border: border::ROUNDED,
     border_focus: border::THICK,
 };
@@ -108,6 +126,12 @@ const ASCII: Icons = Icons {
     sep: "|",
     swatch: "###",
     grip: ["<", ">"],
+    viz_ramp: [" ", ".", ".", ":", ":", "=", "=", "#", "#"],
+    viz_half: ["\"", "."],
+    viz_peak: "-",
+    viz_mark: "*",
+    viz_shade: [".", ":", "+"],
+    braille: false,
     border: ASCII_BORDER,
     border_focus: border::Set {
         top_left: "#",
@@ -157,6 +181,10 @@ mod tests {
             i.swatch,
             i.grip[0],
             i.grip[1],
+            i.viz_peak,
+            i.viz_mark,
+            i.viz_half[0],
+            i.viz_half[1],
             border.top_left,
             border.horizontal_top,
             border.vertical_left,
@@ -164,7 +192,7 @@ mod tests {
             focus.horizontal_top,
             focus.vertical_left,
         ];
-        for glyph in all {
+        for glyph in all.into_iter().chain(i.viz_ramp).chain(i.viz_shade) {
             assert!(glyph.is_ascii(), "{glyph:?}");
         }
     }

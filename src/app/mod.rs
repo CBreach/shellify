@@ -6,6 +6,7 @@ pub(crate) mod pointer;
 pub mod queue;
 pub mod settings;
 pub mod state;
+pub mod visualizer;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -17,12 +18,13 @@ use crossterm::event::{
 };
 use futures::StreamExt;
 use ratatui::DefaultTerminal;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::command::{self, Completion};
 use crate::config::Config;
 use crate::keymap::{KeyPress, KeyResult, Keymap};
 use crate::player::{self, LoadId, MpvOptions, MpvPlayer, Player, PlayerEvent};
+use crate::provider::ProviderKind;
 use crate::themes;
 use crate::ui;
 use crate::ui::layout::PaneSizes;
@@ -33,6 +35,7 @@ use action::{Action, View};
 use settings::Appearance;
 use state::{AppState, Hint, Mode};
 
+const FRAME: Duration = Duration::from_millis(33);
 const TICK: Duration = Duration::from_millis(250);
 
 /// Everything the main loop reacts to. Provider events join this enum in a
@@ -41,6 +44,8 @@ const TICK: Duration = Duration::from_millis(250);
 pub enum AppEvent {
     Input(Event),
     Tick,
+    /// Animation frame (~30fps), only sent while the visualizer is moving.
+    Frame,
     Player(PlayerEvent),
 }
 
@@ -63,6 +68,9 @@ pub struct App {
     pointer_resize: bool,
     /// Last left click, for double-click detection.
     last_click: Option<(ratatui::layout::Position, Instant)>,
+    /// Turns the animation clock on and off (`None` in tests: no clock).
+    animate: Option<watch::Sender<bool>>,
+    last_frame: Option<Instant>,
 }
 
 impl App {
@@ -72,12 +80,16 @@ impl App {
         state.help_entries = keymap.help_entries();
         state.hints = pane_hints(&keymap);
         state.settings_hints = settings_hints(&keymap);
+        state.provider_hints = provider_hints(&keymap);
         state.appearance = Appearance {
             theme: config.theme.clone(),
             color: config.ui.color,
             icons: config.ui.icons,
             mouse: config.ui.mouse,
             resize_cursor: config.ui.resize_cursor,
+            visualizer: config.ui.visualizer,
+            visualizer_style: config.ui.visualizer_style,
+            visualizer_fade: config.ui.visualizer_fade,
             panes: PaneSizes {
                 library: config
                     .ui
@@ -100,12 +112,26 @@ impl App {
             state.error(format!("Theme {name:?} not found; using the default theme"));
             state.appearance.theme.preset = None;
         }
-        state.tab_labels = [("view music", "Music"), ("view settings", "Settings")].map(
-            |(cmd, name)| match keymap.key_for(cmd) {
-                Some(key) => format!("{key} {name}"),
-                None => name.to_string(),
-            },
-        );
+        // Start on the provider whose theme is in use, if any.
+        if let Some(i) = state
+            .appearance
+            .theme
+            .preset
+            .as_deref()
+            .and_then(ProviderKind::for_theme)
+            .and_then(|kind| ProviderKind::ALL.iter().position(|k| *k == kind))
+        {
+            state.provider_cursor = i;
+        }
+        state.tab_labels = [
+            ("view music", "Music"),
+            ("view settings", "Settings"),
+            ("view providers", "Providers"),
+        ]
+        .map(|(cmd, name)| match keymap.key_for(cmd) {
+            Some(key) => format!("{key} {name}"),
+            None => name.to_string(),
+        });
         let theme = Theme::from_config(
             &state.appearance.theme,
             config.ui.color,
@@ -123,6 +149,8 @@ impl App {
             mouse_captured: false,
             pointer_resize: false,
             last_click: None,
+            animate: None,
+            last_frame: None,
         })
     }
 
@@ -130,6 +158,9 @@ impl App {
         let (tx, mut rx) = mpsc::unbounded_channel();
         spawn_input(tx.clone());
         spawn_ticker(tx.clone());
+        let (animate, animate_rx) = watch::channel(false);
+        spawn_animator(tx.clone(), animate_rx);
+        self.animate = Some(animate);
 
         if self.state.appearance.mouse {
             self.mouse_captured = true;
@@ -164,8 +195,48 @@ impl App {
             while let Ok(event) = rx.try_recv() {
                 self.handle(event);
             }
+            self.sync_animation();
         }
         Ok(())
+    }
+
+    /// Whether audio is actually coming out right now.
+    fn is_playing(&self) -> bool {
+        let p = &self.state.playback;
+        self.state.queue.current().is_some() && !p.paused && !p.loading
+    }
+
+    /// Whether the Providers tab is showing its bouncing logo.
+    fn bouncing(&self) -> bool {
+        self.state.view == View::Providers && !self.state.help_open
+    }
+
+    /// Runs the animation clock only while something moves (the visualizer
+    /// playing or settling, or a bouncing provider logo), so an idle
+    /// Shellify doesn't redraw 30 times a second.
+    fn sync_animation(&mut self) {
+        let visualizer = self.state.appearance.visualizer
+            && (self.is_playing() || !self.state.visualizer.at_rest());
+        let want = visualizer || self.bouncing();
+        if !want {
+            self.last_frame = None;
+        }
+        if let Some(animate) = &self.animate {
+            animate.send_if_modified(|on| std::mem::replace(on, want) != want);
+        }
+    }
+
+    fn on_frame(&mut self) {
+        let now = Instant::now();
+        let dt = self
+            .last_frame
+            .map_or(FRAME, |last| now.duration_since(last));
+        self.last_frame = Some(now);
+        let playing = self.is_playing();
+        self.state.visualizer.tick(dt.as_secs_f32(), playing);
+        if self.bouncing() {
+            self.state.bounce += dt.as_secs_f32();
+        }
     }
 
     async fn start_player(&mut self, tx: mpsc::UnboundedSender<AppEvent>) {
@@ -175,7 +246,10 @@ impl App {
             ..Default::default()
         };
         match MpvPlayer::spawn(options, player_tx).await {
-            Ok(player) => {
+            Ok(mut player) => {
+                if self.state.appearance.visualizer {
+                    player.set_metering(true);
+                }
                 self.player = Some(Box::new(player));
                 // mpv needs yt-dlp for YouTube sources, and only says so per track.
                 if !player::on_path("yt-dlp") {
@@ -209,6 +283,7 @@ impl App {
                     self.state.status = None;
                 }
             }
+            AppEvent::Frame => self.on_frame(),
             AppEvent::Player(event) => self.on_player_event(event),
         }
     }
@@ -220,6 +295,13 @@ impl App {
         }
         if self.state.help_open {
             self.on_help_key(key);
+            return;
+        }
+        if self.state.provider_setup.is_some() {
+            // The setup screen has nothing to do yet but close.
+            if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q')) {
+                self.state.provider_setup = None;
+            }
             return;
         }
         match self.state.mode {
@@ -392,6 +474,17 @@ fn settings_hints(keymap: &Keymap) -> Vec<Hint> {
     .collect()
 }
 
+fn provider_hints(keymap: &Keymap) -> Vec<Hint> {
+    [
+        ("focus next", "next"),
+        ("play", "set up"),
+        ("view music", "music"),
+    ]
+    .iter()
+    .filter_map(|&(cmd, label)| keymap.key_for(cmd).map(|key| Hint { key, label }))
+    .collect()
+}
+
 /// `/Users/me/.config/x` -> `~/.config/x`, for status messages.
 fn display_path(path: &Path) -> String {
     let home = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf());
@@ -414,6 +507,35 @@ fn spawn_input(tx: mpsc::UnboundedSender<AppEvent>) {
                 Err(e) => {
                     tracing::error!("terminal input error: {e}");
                     break;
+                }
+            }
+        }
+    });
+}
+
+/// Sends `AppEvent::Frame` at ~30fps while `on` is true, and sleeps (no
+/// wakeups at all) while it's false.
+fn spawn_animator(tx: mpsc::UnboundedSender<AppEvent>, mut on: watch::Receiver<bool>) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(FRAME);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            if !*on.borrow_and_update() {
+                if on.changed().await.is_err() {
+                    break;
+                }
+                continue;
+            }
+            tokio::select! {
+                _ = interval.tick() => {
+                    if tx.send(AppEvent::Frame).is_err() {
+                        break;
+                    }
+                }
+                changed = on.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
                 }
             }
         }

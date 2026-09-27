@@ -3,13 +3,15 @@ use std::time::Duration;
 
 use directories::BaseDirs;
 
-use super::action::{Action, Focus, Pane, Resize, Seek, Select, ThemeCommand, View, Volume};
+use super::action::{
+    Action, Focus, Pane, Resize, Seek, Select, ThemeCommand, View, VizCommand, Volume,
+};
 use super::settings::SettingRow;
 use super::state::{Mode, StatusLevel};
 use super::{App, demo, set_mouse_capture};
 use crate::config;
 use crate::player::{EndReason, PlayerEvent};
-use crate::provider::Track;
+use crate::provider::{ProviderKind, Track};
 use crate::themes;
 use crate::ui::layout::PaneSizes;
 use crate::ui::theme::{Theme, parse_color, theme_ids};
@@ -45,6 +47,9 @@ impl App {
         if self.state.view == View::Settings && self.settings_action(&action) {
             return;
         }
+        if self.state.view == View::Providers && self.providers_action(&action) {
+            return;
+        }
         match action {
             Action::Quit => self.state.should_quit = true,
             Action::Help => {
@@ -54,6 +59,7 @@ impl App {
             Action::View(view) => self.state.view = view,
             Action::Resize(resize) => self.resize(resize),
             Action::Theme(command) => self.theme_command(command),
+            Action::Visualizer(command) => self.visualizer_command(command),
 
             Action::TogglePause => {
                 if self.state.queue.current().is_some() {
@@ -173,6 +179,54 @@ impl App {
         true
     }
 
+    /// On the Providers tab, every direction moves between providers and
+    /// Enter opens the highlighted one's setup screen.
+    fn providers_action(&mut self, action: &Action) -> bool {
+        let last = ProviderKind::ALL.len() as i64 - 1;
+        let cursor = self.state.provider_cursor as i64;
+        let target = match action {
+            Action::Select(Select::By(delta)) => cursor + i64::from(*delta),
+            Action::Select(Select::First) => 0,
+            Action::Select(Select::Last) => last,
+            Action::Focus(Focus::Next) | Action::Seek(Seek::Forward(_)) => cursor + 1,
+            Action::Focus(Focus::Prev) | Action::Seek(Seek::Back(_)) => cursor - 1,
+            Action::Focus(Focus::Pane(_)) => {
+                self.state.view = View::Music;
+                return false;
+            }
+            Action::PlaySelected => {
+                self.open_provider_setup(self.state.provider_cursor);
+                return true;
+            }
+            _ => return false,
+        };
+        let target = target.clamp(0, last) as usize;
+        if target != self.state.provider_cursor {
+            self.state.provider_cursor = target;
+            // Each newly highlighted logo starts its hop from the ground.
+            self.state.bounce = 0.0;
+        }
+        true
+    }
+
+    /// Opens a provider's setup screen and switches to its theme.
+    pub(super) fn open_provider_setup(&mut self, index: usize) {
+        let Some(&kind) = ProviderKind::ALL.get(index) else {
+            return;
+        };
+        self.state.provider_cursor = index;
+        self.state.provider_setup = Some(kind);
+        self.state.bounce = 0.0;
+        let theme = &mut self.state.appearance.theme.preset;
+        if theme.as_deref() != Some(kind.theme()) {
+            *theme = Some(kind.theme().to_string());
+            self.apply_appearance();
+            if !self.status_is_error() {
+                self.state.info(format!("Theme: {}", kind.name()));
+            }
+        }
+    }
+
     fn step_setting(&mut self, delta: i32) {
         let row = self.state.selected_setting();
         if row != SettingRow::Reset {
@@ -221,6 +275,40 @@ impl App {
             *slot = value;
         }
         self.apply_appearance();
+    }
+
+    /// `:visualizer [on|off|next|<style>]`, `v`, `V`.
+    fn visualizer_command(&mut self, command: VizCommand) {
+        let a = &mut self.state.appearance;
+        match command {
+            VizCommand::Toggle => a.visualizer = !a.visualizer,
+            VizCommand::On => a.visualizer = true,
+            VizCommand::Off => a.visualizer = false,
+            VizCommand::NextStyle => {
+                a.visualizer_style = a.visualizer_style.next();
+                a.visualizer = true;
+            }
+            VizCommand::Style(style) => {
+                a.visualizer_style = style;
+                a.visualizer = true;
+            }
+            VizCommand::Fade(on) => {
+                a.visualizer_fade = on.unwrap_or(!a.visualizer_fade);
+                a.visualizer = true;
+            }
+        }
+        self.apply_appearance();
+        if self.status_is_error() {
+            return;
+        }
+        let a = &self.state.appearance;
+        let msg = if a.visualizer {
+            let fade = if a.visualizer_fade { ", fading" } else { "" };
+            format!("Visualizer on: {}{fade}", a.visualizer_style.label())
+        } else {
+            "Visualizer off".to_string()
+        };
+        self.state.info(msg);
     }
 
     /// `:theme <name>`, `:theme import <file>`, `:theme reload`.
@@ -352,6 +440,11 @@ impl App {
         if a.mouse != self.mouse_captured {
             self.mouse_captured = a.mouse;
             set_mouse_capture(a.mouse);
+        }
+        // Only meter loudness while something wants it.
+        let visualizer = a.visualizer;
+        if let Some(player) = self.player.as_mut() {
+            player.set_metering(visualizer);
         }
         // The pointer setting (or mouse) may just have been switched off.
         self.sync_pointer();
@@ -529,6 +622,7 @@ impl App {
             PlayerEvent::Position(pos) => self.state.playback.position = pos,
             PlayerEvent::Duration(d) => self.state.playback.duration = Some(d),
             PlayerEvent::Paused(p) => self.state.playback.paused = p,
+            PlayerEvent::Levels { rms_db, peak_db } => self.state.visualizer.meter(rms_db, peak_db),
             PlayerEvent::Exited(msg) => {
                 tracing::error!("player exited: {msg}");
                 self.player = None;
@@ -611,6 +705,9 @@ mod tests {
         fn stop(&mut self) {
             self.calls.lock().unwrap().push("stop".into());
         }
+        fn set_metering(&mut self, on: bool) {
+            self.calls.lock().unwrap().push(format!("metering {on}"));
+        }
         async fn shutdown(&mut self) {}
     }
 
@@ -621,6 +718,25 @@ mod tests {
         let calls = player.calls.clone();
         app.player = Some(Box::new(player));
         (app, calls)
+    }
+
+    #[test]
+    fn visualizer_toggles_mpv_metering_and_levels_drive_it() {
+        let (mut app, calls) = app();
+        app.dispatch(Action::Visualizer(VizCommand::On));
+        app.dispatch(Action::Visualizer(VizCommand::Off));
+        let calls = calls.lock().unwrap().clone();
+        assert!(calls.contains(&"metering true".to_string()), "{calls:?}");
+        assert_eq!(calls.last().map(String::as_str), Some("metering false"));
+
+        app.on_player_event(PlayerEvent::Levels {
+            rms_db: -12.0,
+            peak_db: -6.0,
+        });
+        for _ in 0..10 {
+            app.state.visualizer.tick(1.0 / 30.0, true);
+        }
+        assert!(app.state.visualizer.level > 0.5);
     }
 
     /// Plays the "Liked Songs" demo playlist from its first track.
@@ -874,11 +990,85 @@ mod theme_tests {
         let mut app = app_at(&config);
         app.state.view = View::Settings;
         app.state.settings_cursor = 0; // Theme row
-        // default -> nord -> gruvbox -> catppuccin -> zebra
-        for _ in 0..4 {
+        // The built-ins (default, nord, gruvbox, catppuccin and the three
+        // provider themes), then zebra.
+        for _ in 0..crate::ui::theme::PRESETS.len() {
             app.dispatch(Action::Focus(Focus::Next));
         }
         assert_eq!(app.state.appearance.theme.preset.as_deref(), Some("zebra"));
         assert_eq!(app.theme.accent, Color::White);
+    }
+}
+
+#[cfg(test)]
+mod provider_tests {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::style::Color;
+
+    use super::*;
+    use crate::config::Config;
+
+    fn app() -> (tempfile::TempDir, App) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        let mut app = App::new(&Config::default(), config).unwrap();
+        app.dispatch(Action::View(View::Providers));
+        (dir, app)
+    }
+
+    fn key(app: &mut App, code: KeyCode) {
+        app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
+    }
+
+    #[test]
+    fn arrows_move_between_providers_and_stop_at_the_ends() {
+        let (_dir, mut app) = app();
+        assert_eq!(app.state.provider_cursor, 0);
+        key(&mut app, KeyCode::Char('l'));
+        key(&mut app, KeyCode::Right);
+        assert_eq!(app.state.provider_cursor, 2);
+        key(&mut app, KeyCode::Char('l'));
+        assert_eq!(app.state.provider_cursor, 2, "clamped");
+        key(&mut app, KeyCode::Char('k'));
+        assert_eq!(app.state.provider_cursor, 1);
+        assert_eq!(app.state.view, View::Providers, "stays on the tab");
+    }
+
+    #[test]
+    fn moving_restarts_the_bounce() {
+        let (_dir, mut app) = app();
+        assert!(app.bouncing());
+        app.state.bounce = 0.5;
+        key(&mut app, KeyCode::Char('l'));
+        assert_eq!(app.state.bounce, 0.0);
+        app.dispatch(Action::View(View::Music));
+        assert!(!app.bouncing(), "no animation off the tab");
+    }
+
+    #[test]
+    fn enter_opens_setup_and_switches_to_the_provider_theme() {
+        let (dir, mut app) = app();
+        key(&mut app, KeyCode::Char('l')); // Spotify
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.state.provider_setup, Some(ProviderKind::Spotify));
+        assert_eq!(
+            app.state.appearance.theme.preset.as_deref(),
+            Some("spotify")
+        );
+        assert_eq!(app.theme.accent, Color::Rgb(0x1e, 0xd7, 0x60), "green");
+        let saved = std::fs::read_to_string(dir.path().join("config.toml")).unwrap();
+        assert!(saved.contains("preset = \"spotify\""), "{saved}");
+
+        // The setup screen captures keys until it's closed.
+        key(&mut app, KeyCode::Char('h'));
+        assert_eq!(app.state.provider_cursor, 1);
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(app.state.provider_setup, None);
+        assert_eq!(app.state.view, View::Providers);
+
+        // Restarting with that theme highlights its provider.
+        let config = Config::load(&dir.path().join("config.toml")).unwrap();
+        let app = App::new(&config, dir.path().join("config.toml")).unwrap();
+        assert_eq!(app.state.provider_cursor, 1);
     }
 }

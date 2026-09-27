@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use crate::app::action::{
-    Action, Focus, Pane, RepeatMode, Resize, Seek, Select, ThemeCommand, View, Volume,
+    Action, Focus, Pane, RepeatMode, Resize, Seek, Select, ThemeCommand, View, VizCommand, Volume,
 };
+use crate::app::visualizer::VizStyle;
 
 pub struct CommandInfo {
     pub name: &'static str,
@@ -33,6 +34,7 @@ pub const COMMANDS: &[CommandInfo] = &[
         "prev",
         "Previous track (or restart the current one)",
     ),
+    cmd("providers", "providers", "Open the Providers tab"),
     cmd("queue", "queue", "Focus the queue"),
     cmd("quit", "q, quit", "Quit Shellify"),
     cmd(
@@ -59,7 +61,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         "theme <name>, theme import <file>, theme reload",
         "Switch, import (.toml or base16 .yaml) or reload themes",
     ),
-    cmd("view", "view <music|settings>", "Switch tab"),
+    cmd("view", "view <music|settings|providers>", "Switch tab"),
+    cmd(
+        "visualizer",
+        "visualizer [on|off|next|bars|mirror|wave|dots], visualizer fade [on|off]",
+        "Toggle the visualizer, pick its style, or toggle fading",
+    ),
     cmd(
         "volume",
         "vol, volume <0-100|+N|-N>",
@@ -92,12 +99,17 @@ pub fn parse(input: &str) -> Result<Action, String> {
         "q" | "quit" => no_arg(Action::Quit),
         "help" => no_arg(Action::Help),
         "settings" => no_arg(Action::View(View::Settings)),
+        "providers" => no_arg(Action::View(View::Providers)),
         "resize" => parse_resize(arg).map(Action::Resize),
         "theme" => parse_theme(arg).map(Action::Theme),
+        "visualizer" | "viz" => parse_visualizer(arg).map(Action::Visualizer),
         "view" => match arg {
             "music" => Ok(Action::View(View::Music)),
             "settings" => Ok(Action::View(View::Settings)),
-            _ => Err(format!("view: expected music or settings, got {arg:?}")),
+            "providers" => Ok(Action::View(View::Providers)),
+            _ => Err(format!(
+                "view: expected music, settings or providers, got {arg:?}"
+            )),
         },
         "pause" => no_arg(Action::TogglePause),
         "next" => no_arg(Action::Next),
@@ -159,6 +171,23 @@ fn parse_volume(arg: &str) -> Result<Volume, String> {
             Ok(v) if v <= 100 => Ok(Volume::Set(v)),
             _ => Err(err()),
         }
+    }
+}
+
+fn parse_visualizer(arg: &str) -> Result<VizCommand, String> {
+    match arg {
+        "" | "toggle" => Ok(VizCommand::Toggle),
+        "on" => Ok(VizCommand::On),
+        "off" => Ok(VizCommand::Off),
+        "next" => Ok(VizCommand::NextStyle),
+        "fade" => Ok(VizCommand::Fade(None)),
+        "fade on" => Ok(VizCommand::Fade(Some(true))),
+        "fade off" => Ok(VizCommand::Fade(Some(false))),
+        _ => VizStyle::parse(arg).map(VizCommand::Style).ok_or_else(|| {
+            format!(
+                "visualizer: expected on, off, next, fade, bars, mirror, wave or dots, got {arg:?}"
+            )
+        }),
     }
 }
 
@@ -318,6 +347,24 @@ mod tests {
             Ok(Action::Theme(ThemeCommand::Reload))
         );
         assert!(parse("theme").is_err());
+        assert_eq!(
+            parse("visualizer"),
+            Ok(Action::Visualizer(VizCommand::Toggle))
+        );
+        assert_eq!(parse("viz off"), Ok(Action::Visualizer(VizCommand::Off)));
+        assert_eq!(
+            parse("visualizer mirror"),
+            Ok(Action::Visualizer(VizCommand::Style(VizStyle::Mirror)))
+        );
+        assert!(parse("visualizer disco").is_err());
+        assert_eq!(
+            parse("viz fade"),
+            Ok(Action::Visualizer(VizCommand::Fade(None)))
+        );
+        assert_eq!(
+            parse("visualizer fade off"),
+            Ok(Action::Visualizer(VizCommand::Fade(Some(false))))
+        );
         assert!(parse("theme import").is_err());
         assert_eq!(
             parse("resize library 30"),
@@ -330,6 +377,8 @@ mod tests {
         assert!(parse("resize tracks 50").is_err());
         assert!(parse("resize library").is_err());
         assert_eq!(parse("view music"), Ok(Action::View(View::Music)));
+        assert_eq!(parse("view providers"), Ok(Action::View(View::Providers)));
+        assert_eq!(parse("providers"), Ok(Action::View(View::Providers)));
         assert!(parse("view mixtape").is_err());
     }
 

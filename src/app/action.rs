@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use crate::app::visualizer::VizStyle;
+
 /// Everything the user can do. Key bindings and `:commands` both resolve to an
 /// `Action`, so every feature is reachable from command mode.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7,12 +9,14 @@ pub enum Action {
     Quit,
     /// Open the help overlay.
     Help,
-    /// Switch between the Music and Settings tabs.
+    /// Switch between the Music, Settings and Providers tabs.
     View(View),
     /// Change a side pane's width (percent of the window).
     Resize(Resize),
     /// Switch, import or reload color themes.
     Theme(ThemeCommand),
+    /// Show, hide or restyle the audio visualizer.
+    Visualizer(VizCommand),
 
     // Playback
     TogglePause,
@@ -92,6 +96,18 @@ pub enum Focus {
     Pane(Pane),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VizCommand {
+    Toggle,
+    On,
+    Off,
+    /// Next style (turns it on if it was off).
+    NextStyle,
+    Style(VizStyle),
+    /// Turn fading on or off, or toggle it (`None`).
+    Fade(Option<bool>),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThemeCommand {
     /// Switch to a built-in or custom theme by id.
@@ -115,6 +131,7 @@ pub enum View {
     #[default]
     Music,
     Settings,
+    Providers,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
