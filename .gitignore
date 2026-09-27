@@ -24,3 +24,7 @@ secrets*
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Local-only Claude session notes
+CLAUDE/HANDOFF.md
+CLAUDE/PLAN.md
