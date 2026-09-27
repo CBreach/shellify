@@ -58,7 +58,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
                 state.hits.dividers = dividers(&areas.panes, areas.main);
                 state.hits.panes_area = Some(areas.main);
                 if state.appearance.mouse {
-                    let active = state.divider_drag.or(state.divider_hover);
+                    let active = state.divider_drag.map(|d| d.pane).or(state.divider_hover);
                     draw_grips(frame, &state.hits.dividers, active, theme);
                 }
             }
@@ -321,6 +321,13 @@ mod tests {
         mouse_state.divider_hover = Some(Pane::Library);
         let screen = render_state(&mut mouse_state, 100, 30, &theme);
         assert!(screen.is_ascii(), "grips and hover highlight are ascii too");
+        mouse_state.help_open = true;
+        let screen = render_state(&mut mouse_state, 100, 40, &theme);
+        assert!(
+            screen.contains("drag a pane border (<>)"),
+            "help names the pack's grip"
+        );
+        assert!(screen.is_ascii(), "help overlay is ascii too");
         for (w, h) in [(100, 30), (60, 24)] {
             let screen = render(w, h, &theme);
             let bad: String = screen.chars().filter(|c| !c.is_ascii()).collect();

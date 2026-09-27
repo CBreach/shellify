@@ -9,6 +9,7 @@ use crate::app::settings::{Appearance, SettingRow};
 use crate::command::LineEditor;
 use crate::keymap::HelpEntry;
 use crate::provider::{Playlist, Track};
+use crate::ui::layout::PaneSizes;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -95,6 +96,19 @@ impl ListHit {
     }
 }
 
+/// An in-progress drag of a pane border.
+#[derive(Debug, Clone, Copy)]
+pub struct BorderDrag {
+    /// The side pane being resized.
+    pub pane: Pane,
+    /// Sizes when the drag began. Every motion is clamped against these, so
+    /// squeezing the other pane is undone if the user drags back.
+    pub start: PaneSizes,
+    /// Pointer column minus the pane's own border column at press time; the
+    /// grab zone is two cells wide, so this keeps the border from jumping.
+    pub grab_offset: i32,
+}
+
 /// A footer hint: `key label`, e.g. `a add`.
 #[derive(Debug, Clone)]
 pub struct Hint {
@@ -145,7 +159,7 @@ pub struct AppState {
     /// The pane border under the mouse pointer, highlighted as draggable.
     pub divider_hover: Option<Pane>,
     /// The pane border being dragged right now.
-    pub divider_drag: Option<Pane>,
+    pub divider_drag: Option<BorderDrag>,
 }
 
 impl AppState {

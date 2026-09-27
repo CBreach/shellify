@@ -11,10 +11,10 @@
 use std::time::{Duration, Instant};
 
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-use ratatui::layout::Position;
+use ratatui::layout::{Position, Rect};
 
 use super::action::{Action, Pane, Resize, Seek, Select, View};
-use super::state::Mode;
+use super::state::{BorderDrag, Mode};
 use super::{App, pointer};
 use crate::ui::layout::PaneSizes;
 
@@ -27,6 +27,15 @@ impl App {
             return;
         }
         let pos = Position::new(ev.column, ev.row);
+
+        // A drag ends on release wherever that happens (over help, during a
+        // prompt...), and a new press ends any drag whose release we missed.
+        if matches!(
+            ev.kind,
+            MouseEventKind::Up(MouseButton::Left) | MouseEventKind::Down(_)
+        ) {
+            self.end_drag();
+        }
 
         if self.state.help_open {
             let scroll = &mut self.state.help_scroll;
@@ -48,19 +57,12 @@ impl App {
         }
         match ev.kind {
             MouseEventKind::Down(MouseButton::Left) => match self.divider_at(pos) {
-                Some(pane) => self.press_border(pane, pos),
+                Some((zone, pane)) => self.press_border(zone, pane, pos),
                 None => self.click(pos),
             },
             MouseEventKind::Drag(MouseButton::Left) => {
-                if let Some(pane) = self.state.divider_drag {
-                    self.drag_border(pane, pos.x);
-                }
-            }
-            MouseEventKind::Up(MouseButton::Left) => {
-                // Save once, when the drag ends, not on every motion event.
-                if self.state.divider_drag.take().is_some() {
-                    self.save_pane_sizes();
-                    self.sync_pointer();
+                if let Some(drag) = self.state.divider_drag {
+                    self.drag_border(drag, pos.x);
                 }
             }
             MouseEventKind::Moved => self.hover(pos),
@@ -120,26 +122,35 @@ impl App {
 
     /// Shows the resize pointer while a border is hovered or dragged, if the
     /// user opted in (see `pointer`).
-    pub(super) fn sync_pointer(&self) {
+    pub(super) fn sync_pointer(&mut self) {
         let a = &self.state.appearance;
-        let over_border = self
-            .state
-            .divider_hover
-            .or(self.state.divider_drag)
-            .is_some();
-        pointer::set_resize(a.mouse && a.resize_cursor && over_border);
+        let over_border = self.state.divider_hover.is_some() || self.state.divider_drag.is_some();
+        let want = a.mouse && a.resize_cursor && over_border;
+        if want != self.pointer_resize {
+            self.pointer_resize = want;
+            pointer::set_resize(want);
+        }
     }
 
-    fn divider_at(&self, pos: Position) -> Option<Pane> {
+    fn divider_at(&self, pos: Position) -> Option<(Rect, Pane)> {
         let hits = &self.state.hits.dividers;
-        hits.iter()
-            .find(|(r, _)| r.contains(pos))
-            .map(|&(_, pane)| pane)
+        hits.iter().find(|(r, _)| r.contains(pos)).copied()
+    }
+
+    /// Finishes a border drag, saving only if the sizes actually changed.
+    fn end_drag(&mut self) {
+        let Some(drag) = self.state.divider_drag.take() else {
+            return;
+        };
+        if self.state.appearance.panes != drag.start {
+            self.save_pane_sizes();
+        }
+        self.sync_pointer();
     }
 
     /// Highlights a border while the pointer is over it, and says what it does.
     fn hover(&mut self, pos: Position) {
-        let over = self.divider_at(pos);
+        let over = self.divider_at(pos).map(|(_, pane)| pane);
         if over != self.state.divider_hover {
             self.state.divider_hover = over;
             if over.is_some() && self.state.divider_drag.is_none() {
@@ -150,7 +161,7 @@ impl App {
     }
 
     /// Press on a border: start dragging it, or reset it on a double-click.
-    fn press_border(&mut self, pane: Pane, pos: Position) {
+    fn press_border(&mut self, zone: Rect, pane: Pane, pos: Position) {
         let double = self
             .last_click
             .is_some_and(|(p, at)| p == pos && at.elapsed() < DOUBLE_CLICK);
@@ -160,16 +171,28 @@ impl App {
             self.dispatch(Action::Resize(Resize::Set(pane, default)));
         } else {
             self.last_click = Some((pos, Instant::now()));
-            self.state.divider_drag = Some(pane);
+            // The zone covers both border cells; the pane's own border is
+            // Library's last column (left cell) or Queue's first (right cell).
+            let border_x = match pane {
+                Pane::Queue => zone.x + 1,
+                _ => zone.x,
+            };
+            self.state.divider_drag = Some(BorderDrag {
+                pane,
+                start: self.state.appearance.panes,
+                grab_offset: i32::from(pos.x) - i32::from(border_x),
+            });
             self.sync_pointer();
         }
     }
 
-    /// Resizes `pane` so its inner border follows column `x`.
-    fn drag_border(&mut self, pane: Pane, x: u16) {
+    /// Resizes the dragged pane so its inner border follows the pointer.
+    fn drag_border(&mut self, drag: BorderDrag, pointer_x: u16) {
         let Some(area) = self.state.hits.panes_area else {
             return;
         };
+        let x = (i32::from(pointer_x) - drag.grab_offset).clamp(0, i32::from(u16::MAX)) as u16;
+        let pane = drag.pane;
         // Library's border is its last column; Queue's is its first.
         let cols = match pane {
             Pane::Library => x.saturating_sub(area.x) + 1,
@@ -177,7 +200,8 @@ impl App {
             Pane::Tracks => return,
         };
         let pct = PaneSizes::pct_of(cols, area.width);
-        let panes = self.state.appearance.panes.with(pane, pct);
+        // Clamp against the starting sizes, not the previous motion's result.
+        let panes = drag.start.with(pane, pct);
         self.state.appearance.panes = panes;
         self.state.info(format!(
             "Library {}%, Queue {}% (release to save)",
@@ -501,8 +525,6 @@ mod tests {
         );
     }
 
-    /// The only test that turns the resize pointer on, since the pointer
-    /// state is process-global.
     #[test]
     fn resize_pointer_follows_hover_only_when_opted_in() {
         let mut app = app_with_mouse(true);
@@ -511,20 +533,89 @@ mod tests {
         let over = (border.x, border.y + 2);
 
         mouse(&mut app, MouseEventKind::Moved, over.0, over.1);
-        assert!(!pointer::is_resize(), "off by default");
+        assert!(!app.pointer_resize, "off by default");
         mouse(&mut app, MouseEventKind::Moved, 50, over.1);
 
         app.state.appearance.resize_cursor = true;
         mouse(&mut app, MouseEventKind::Moved, over.0, over.1);
-        assert!(pointer::is_resize());
+        assert!(app.pointer_resize);
         mouse(&mut app, MouseEventKind::Moved, 50, over.1);
-        assert!(!pointer::is_resize(), "restored when the pointer leaves");
+        assert!(!app.pointer_resize, "restored when the pointer leaves");
 
         // Turning the option off while hovering restores it right away.
         mouse(&mut app, MouseEventKind::Moved, over.0, over.1);
         app.state.appearance.resize_cursor = false;
         app.sync_pointer();
-        assert!(!pointer::is_resize());
+        assert!(!app.pointer_resize);
+    }
+
+    fn press(app: &mut App, x: u16, y: u16) {
+        mouse(app, MouseEventKind::Down(MouseButton::Left), x, y);
+    }
+    fn drag_to(app: &mut App, x: u16, y: u16) {
+        mouse(app, MouseEventKind::Drag(MouseButton::Left), x, y);
+    }
+    fn release(app: &mut App, x: u16, y: u16) {
+        mouse(app, MouseEventKind::Up(MouseButton::Left), x, y);
+    }
+
+    #[test]
+    fn a_release_over_help_or_a_prompt_still_ends_the_drag() {
+        let mut app = app_with_mouse(true);
+        draw(&mut app, 100, 30);
+        let (border, _) = app.state.hits.dividers[0];
+        press(&mut app, border.x, border.y + 2);
+        drag_to(&mut app, 30, border.y + 2);
+        app.state.help_open = true; // e.g. `?` pressed mid-drag
+        release(&mut app, 30, border.y + 2);
+        assert!(app.state.divider_drag.is_none());
+
+        app.state.help_open = false;
+        press(&mut app, border.x, border.y + 2);
+        app.state.mode = Mode::Command; // `:` pressed mid-drag
+        release(&mut app, border.x, border.y + 2);
+        assert!(app.state.divider_drag.is_none());
+    }
+
+    #[test]
+    fn dragging_out_and_back_doesnt_squeeze_the_other_pane() {
+        let mut app = app_with_mouse(true);
+        draw(&mut app, 100, 30);
+        let start = app.state.appearance.panes;
+        let (border, _) = app.state.hits.dividers[0];
+        press(&mut app, border.x, border.y + 2);
+        drag_to(&mut app, 60, border.y + 2); // past the limit: Queue gives way
+        assert!(app.state.appearance.panes.queue < start.queue);
+        drag_to(&mut app, border.x, border.y + 2); // and back
+        assert_eq!(app.state.appearance.panes, start);
+    }
+
+    #[test]
+    fn clicking_a_border_without_moving_saves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut app = app_saving_to(true, path.clone());
+        draw(&mut app, 100, 30);
+        let (border, _) = app.state.hits.dividers[0];
+        press(&mut app, border.x, border.y + 2);
+        release(&mut app, border.x, border.y + 2);
+        assert!(!path.exists(), "a plain click must not rewrite the config");
+    }
+
+    #[test]
+    fn grabbing_either_border_cell_doesnt_jump() {
+        for cell in 0..2 {
+            let mut app = app_with_mouse(true);
+            draw(&mut app, 100, 30);
+            let start = app.state.appearance.panes;
+            for &(zone, _) in &app.state.hits.dividers.clone() {
+                let x = zone.x + cell;
+                press(&mut app, x, zone.y + 2);
+                drag_to(&mut app, x, zone.y + 2); // motion without moving columns
+                assert_eq!(app.state.appearance.panes, start, "cell {cell} of {zone:?}");
+                release(&mut app, x, zone.y + 2);
+            }
+        }
     }
 
     #[test]

@@ -110,16 +110,17 @@ fn content(state: &AppState, theme: &Theme) -> Vec<Line<'static>> {
     }
 
     lines.push(Line::from(""));
-    let mouse: &[&str] = if state.appearance.mouse {
-        &[
-            " Mouse: click to select, double-click to play, scroll to move,",
-            " click the progress bar to seek, drag a pane border (◂▸) to resize,",
-            " double-click a border to reset it.",
+    let grip = theme.icons.grip.concat();
+    let mouse: Vec<String> = if state.appearance.mouse {
+        vec![
+            " Mouse: click to select, double-click to play, scroll to move,".into(),
+            format!(" click the progress bar to seek, drag a pane border ({grip}) to resize,"),
+            " double-click a border to reset it.".into(),
         ]
     } else {
-        &[" Mouse support is off; turn it on in the Settings tab (2)."]
+        vec![" Mouse support is off; turn it on in the Settings tab (2).".into()]
     };
-    lines.extend(mouse.iter().map(|text| Line::styled(*text, muted)));
+    lines.extend(mouse.into_iter().map(|text| Line::styled(text, muted)));
     lines.push(Line::styled(
         " Rebind keys in ~/.config/shellify/config.toml under [keys].",
         muted,
