@@ -12,6 +12,7 @@ use crate::app::action::RepeatMode;
 use crate::app::state::AppState;
 
 const VOLUME_CELLS: usize = 10;
+const COMPACT_BELOW: u16 = 70;
 
 pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     let icons = theme.icons;
@@ -25,7 +26,9 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     let [info, progress] =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(inner);
 
-    let settings = settings_line(state, theme);
+    // Narrow windows drop the volume meter to leave room for the title.
+    let compact = inner.width < COMPACT_BELOW;
+    let settings = settings_line(state, theme, compact);
     let settings_width = settings.width();
     frame.render_widget(settings.right_aligned(), info);
 
@@ -92,7 +95,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
 }
 
 /// `⟳ all   vol ━━━━━━━─── 70%` (glyphs from the icon pack)
-fn settings_line(state: &AppState, theme: &Theme) -> Line<'static> {
+fn settings_line(state: &AppState, theme: &Theme, compact: bool) -> Line<'static> {
     let icons = theme.icons;
     let muted = Style::new().fg(theme.muted);
     let accent = Style::new().fg(theme.accent);
@@ -104,9 +107,16 @@ fn settings_line(state: &AppState, theme: &Theme) -> Line<'static> {
     };
 
     let volume = usize::from(state.playback.volume);
+    let repeat_span = Span::styled(format!("{} {}", icons.repeat, repeat.label()), repeat_style);
+    if compact {
+        return Line::from(vec![
+            repeat_span,
+            Span::styled(format!("  vol {volume}% "), muted),
+        ]);
+    }
     let filled = (volume * VOLUME_CELLS).div_ceil(100);
     Line::from(vec![
-        Span::styled(format!("{} {}", icons.repeat, repeat.label()), repeat_style),
+        repeat_span,
         Span::styled("   vol ", muted),
         Span::styled(icons.bar_filled.repeat(filled), accent),
         Span::styled(icons.bar_empty.repeat(VOLUME_CELLS - filled), muted),

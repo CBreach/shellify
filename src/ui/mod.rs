@@ -1,6 +1,8 @@
 mod cmdline;
+mod header;
 mod help;
 pub mod icons;
+pub mod layout;
 mod library;
 mod now_playing;
 mod queue;
@@ -11,13 +13,14 @@ mod tracks;
 use std::time::Duration;
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Alignment, Constraint, Flex, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::Block;
+use ratatui::widgets::{Block, Paragraph, Wrap};
 
 use crate::app::action::Pane;
 use crate::app::state::AppState;
+use layout::Screen;
 use theme::Theme;
 
 pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
@@ -27,28 +30,49 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
         frame.area(),
     );
 
-    let [main, now_playing, cmdline] = Layout::vertical([
-        Constraint::Min(5),
-        Constraint::Length(4),
-        Constraint::Length(1),
-    ])
-    .areas(frame.area());
+    let areas = match layout::compute(frame.area(), state.focus) {
+        Screen::Normal(areas) => areas,
+        Screen::TooSmall => {
+            draw_too_small(frame, theme);
+            return;
+        }
+    };
 
-    let [library, tracks, queue] = Layout::horizontal([
-        Constraint::Percentage(22),
-        Constraint::Percentage(50),
-        Constraint::Percentage(28),
-    ])
-    .areas(main);
-
-    library::draw(frame, library, state, theme);
-    tracks::draw(frame, tracks, state, theme);
-    queue::draw(frame, queue, state, theme);
-    now_playing::draw(frame, now_playing, state, theme);
-    cmdline::draw(frame, cmdline, state, theme);
+    header::draw(frame, areas.header, state, theme, areas.narrow);
+    for &(pane, area) in &areas.panes {
+        match pane {
+            Pane::Library => library::draw(frame, area, state, theme),
+            Pane::Tracks => tracks::draw(frame, area, state, theme),
+            Pane::Queue => queue::draw(frame, area, state, theme),
+        }
+    }
+    now_playing::draw(frame, areas.now_playing, state, theme);
+    cmdline::draw(frame, areas.cmdline, state, theme);
     if state.help_open {
         help::draw(frame, state, theme);
     }
+}
+
+/// Shown instead of a garbled layout when the window can't fit the UI.
+fn draw_too_small(frame: &mut Frame, theme: &Theme) {
+    let area = frame.area();
+    let msg = Paragraph::new(vec![
+        Line::from("Terminal too small").style(Style::new().add_modifier(Modifier::BOLD)),
+        Line::from(format!(
+            "need {}x{}, have {}x{}",
+            layout::MIN_WIDTH,
+            layout::MIN_HEIGHT,
+            area.width,
+            area.height
+        ))
+        .style(Style::new().fg(theme.muted)),
+    ])
+    .alignment(Alignment::Center)
+    .wrap(Wrap { trim: true });
+    let [middle] = Layout::vertical([Constraint::Length(2)])
+        .flex(Flex::Center)
+        .areas(area);
+    frame.render_widget(msg, middle);
 }
 
 /// A bordered pane, highlighted when focused.
@@ -92,7 +116,67 @@ fn fmt_duration(d: Duration) -> String {
 
 #[cfg(test)]
 mod tests {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
     use super::*;
+    use crate::provider::{Playlist, Track};
+
+    fn render(w: u16, h: u16, theme: &Theme) -> String {
+        let track = Track {
+            id: "1".into(),
+            title: "A Rather Long Song Title For Truncation".into(),
+            artist: "Some Artist".into(),
+            duration: Duration::from_secs(200),
+        };
+        let mut state = AppState::new(vec![Playlist {
+            name: "Liked Songs".into(),
+            tracks: vec![track.clone()],
+        }]);
+        state.queue.play_list(vec![track], 0);
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+        terminal.draw(|f| draw(f, &mut state, theme)).unwrap();
+        let buffer = terminal.backend().buffer();
+        buffer
+            .content
+            .chunks(w as usize)
+            .map(|row| row.iter().map(|c| c.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn renders_at_every_contract_size() {
+        let theme = Theme::default();
+        for (w, h) in [(160, 48), (100, 30), (80, 24), (60, 24), (40, 12)] {
+            let screen = render(w, h, &theme);
+            assert!(screen.contains("Now Playing"), "{w}x{h}:\n{screen}");
+            assert!(screen.contains("Shellify"), "{w}x{h}");
+        }
+    }
+
+    #[test]
+    fn narrow_header_lists_panes_and_tiny_shows_message() {
+        let theme = Theme::default();
+        assert!(render(60, 24, &theme).contains("Library  Tracks  Queue"));
+        assert!(!render(100, 30, &theme).contains("Library  Tracks  Queue"));
+        for (w, h) in [(39, 24), (80, 11), (10, 3)] {
+            assert!(render(w, h, &theme).contains("too small"), "{w}x{h}");
+        }
+    }
+
+    #[test]
+    fn ascii_pack_renders_only_ascii() {
+        let theme = Theme {
+            icons: icons::IconPack::Ascii.icons(),
+            ..Theme::default()
+        };
+        for (w, h) in [(100, 30), (60, 24)] {
+            let screen = render(w, h, &theme);
+            let bad: String = screen.chars().filter(|c| !c.is_ascii()).collect();
+            assert!(bad.is_empty(), "{w}x{h} non-ascii: {bad:?}");
+        }
+    }
 
     #[test]
     fn formats_durations() {

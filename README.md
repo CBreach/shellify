@@ -22,6 +22,8 @@ Listen to your music from the terminal. Shellify is a keyboard-driven, full-scre
 brew install mpv yt-dlp
 ```
 
+Shellify adapts to the window size. It shows three panes from 80 columns up and one pane at a time below that (switch with `h`/`l`), and needs at least 40×12.
+
 ## Build & run
 
 ```sh
