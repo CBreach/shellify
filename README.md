@@ -1,5 +1,7 @@
 # Shellify
 
+[![CI](https://github.com/CBreach/shellify/actions/workflows/ci.yml/badge.svg)](https://github.com/CBreach/shellify/actions/workflows/ci.yml)
+
 Listen to your music from the terminal. Shellify is a keyboard-driven, full-screen TUI with vim-style navigation and a `:` command mode. It connects to your own streaming accounts.
 
 > **Status: early development.** The interface, keys and commands work, and audio plays through mpv. There's no account sign-in yet: the built-in demo playlists play the top YouTube search result for each song, and `:open` plays any URL or local file. The roadmap below lists what's coming next.
@@ -126,6 +128,14 @@ icons = "unicode"  # unicode (default) | ascii | nerd
 Shellify signs in to *your* accounts and ships with no credentials. Anything you provide (cookies, tokens, API client IDs) stays on your machine: in your OS keychain or your user config/cache directories, never in the project folder.
 
 Logs are written to your cache directory (`~/Library/Caches/shellify/` on macOS). Set `SHELLIFY_LOG=shellify=debug` for more detail.
+
+## Contributing
+
+Every change goes through a pull request into `main`. CI runs `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` on Linux and macOS, and a PR can only merge once the **All checks** job passes. Run the same checks locally before pushing:
+
+```sh
+cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test
+```
 
 ## License
 
