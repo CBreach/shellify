@@ -5,7 +5,8 @@
 //! - double-click: activate (same as Enter)
 //! - scroll: move the selection (or scroll help)
 //! - drag a pane border: resize the side panes (saved on release; `:resize`
-//!   does the same from the keyboard)
+//!   does the same from the keyboard); double-click a border to reset it.
+//!   Borders show a grip while mouse support is on and light up on hover.
 
 use std::time::{Duration, Instant};
 
@@ -13,7 +14,7 @@ use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 
 use super::App;
-use super::action::{Action, Pane, Seek, Select, View};
+use super::action::{Action, Pane, Resize, Seek, Select, View};
 use super::state::Mode;
 use crate::ui::layout::PaneSizes;
 
@@ -46,31 +47,22 @@ impl App {
             return;
         }
         match ev.kind {
-            MouseEventKind::Down(MouseButton::Left) => {
-                let divider = self
-                    .state
-                    .hits
-                    .dividers
-                    .iter()
-                    .find(|(r, _)| r.contains(pos));
-                if let Some(&(_, pane)) = divider {
-                    self.drag = Some(pane);
-                    self.last_click = None;
-                } else {
-                    self.click(pos);
-                }
-            }
+            MouseEventKind::Down(MouseButton::Left) => match self.divider_at(pos) {
+                Some(pane) => self.press_border(pane, pos),
+                None => self.click(pos),
+            },
             MouseEventKind::Drag(MouseButton::Left) => {
-                if let Some(pane) = self.drag {
+                if let Some(pane) = self.state.divider_drag {
                     self.drag_border(pane, pos.x);
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
                 // Save once, when the drag ends, not on every motion event.
-                if self.drag.take().is_some() {
+                if self.state.divider_drag.take().is_some() {
                     self.save_pane_sizes();
                 }
             }
+            MouseEventKind::Moved => self.hover(pos),
             MouseEventKind::ScrollDown => self.scroll(pos, 1),
             MouseEventKind::ScrollUp => self.scroll(pos, -1),
             _ => {}
@@ -122,6 +114,39 @@ impl App {
                     self.dispatch(Action::PlaySelected);
                 }
             }
+        }
+    }
+
+    fn divider_at(&self, pos: Position) -> Option<Pane> {
+        let hits = &self.state.hits.dividers;
+        hits.iter()
+            .find(|(r, _)| r.contains(pos))
+            .map(|&(_, pane)| pane)
+    }
+
+    /// Highlights a border while the pointer is over it, and says what it does.
+    fn hover(&mut self, pos: Position) {
+        let over = self.divider_at(pos);
+        if over != self.state.divider_hover {
+            self.state.divider_hover = over;
+            if over.is_some() && self.state.divider_drag.is_none() {
+                self.state.info("Drag to resize, double-click to reset");
+            }
+        }
+    }
+
+    /// Press on a border: start dragging it, or reset it on a double-click.
+    fn press_border(&mut self, pane: Pane, pos: Position) {
+        let double = self
+            .last_click
+            .is_some_and(|(p, at)| p == pos && at.elapsed() < DOUBLE_CLICK);
+        if double {
+            self.last_click = None;
+            let default = PaneSizes::default().get(pane).unwrap_or_default();
+            self.dispatch(Action::Resize(Resize::Set(pane, default)));
+        } else {
+            self.last_click = Some((pos, Instant::now()));
+            self.state.divider_drag = Some(pane);
         }
     }
 
@@ -414,6 +439,51 @@ mod tests {
 
         draw(&mut app, 60, 24);
         assert!(app.state.hits.dividers.is_empty());
+    }
+
+    #[test]
+    fn hovering_a_border_highlights_it_and_explains() {
+        let mut app = app_with_mouse(true);
+        draw(&mut app, 100, 30);
+        let (border, pane) = app.state.hits.dividers[1];
+        mouse(&mut app, MouseEventKind::Moved, border.x, border.y + 2);
+        assert_eq!(app.state.divider_hover, Some(pane));
+        assert!(
+            app.state
+                .status
+                .as_ref()
+                .unwrap()
+                .text
+                .contains("Drag to resize")
+        );
+        mouse(&mut app, MouseEventKind::Moved, 50, border.y + 2);
+        assert_eq!(app.state.divider_hover, None);
+    }
+
+    #[test]
+    fn double_clicking_a_border_resets_that_pane() {
+        let mut app = app_with_mouse(true);
+        app.state.appearance.panes = PaneSizes {
+            library: 40,
+            queue: 20,
+        };
+        draw(&mut app, 100, 30);
+        let (border, _) = app.state.hits.dividers[0];
+        for kind in [
+            MouseEventKind::Down(MouseButton::Left),
+            MouseEventKind::Up(MouseButton::Left),
+            MouseEventKind::Down(MouseButton::Left),
+        ] {
+            mouse(&mut app, kind, border.x, border.y + 1);
+        }
+        assert_eq!(
+            app.state.appearance.panes.library,
+            PaneSizes::default().library
+        );
+        assert_eq!(
+            app.state.appearance.panes.queue, 20,
+            "only that border resets"
+        );
     }
 
     #[test]

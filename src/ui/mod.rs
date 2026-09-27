@@ -57,6 +57,10 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
             if !areas.narrow {
                 state.hits.dividers = dividers(&areas.panes, areas.main);
                 state.hits.panes_area = Some(areas.main);
+                if state.appearance.mouse {
+                    let active = state.divider_drag.or(state.divider_hover);
+                    draw_grips(frame, &state.hits.dividers, active, theme);
+                }
             }
         }
     }
@@ -78,6 +82,40 @@ fn dividers(panes: &[(Pane, Rect)], main: Rect) -> Vec<(Rect, Pane)> {
         (zone(library.right() - 1), Pane::Library),
         (zone(tracks.right() - 1), Pane::Queue),
     ]
+}
+
+/// Marks pane borders as draggable: a small grip in the middle of each, and
+/// while one is hovered or dragged, the whole border heavy and accented.
+/// Weight and glyphs carry the cue too, so it still reads without color.
+fn draw_grips(frame: &mut Frame, dividers: &[(Rect, Pane)], active: Option<Pane>, theme: &Theme) {
+    let icons = theme.icons;
+    let lit = Style::new().fg(theme.accent).add_modifier(Modifier::BOLD);
+    let buf = frame.buffer_mut();
+    for &(zone, pane) in dividers {
+        if zone.height < 3 {
+            continue;
+        }
+        let on = active == Some(pane);
+        if on {
+            // Skip the top and bottom rows, which hold the border corners.
+            for y in zone.y + 1..zone.bottom() - 1 {
+                for x in zone.x..zone.right() {
+                    buf[(x, y)]
+                        .set_symbol(icons.border_focus.vertical_left)
+                        .set_style(lit);
+                }
+            }
+        }
+        let grip_style = if on {
+            lit
+        } else {
+            Style::new().fg(theme.muted)
+        };
+        let mid = zone.y + zone.height / 2;
+        for (x, glyph) in (zone.x..).zip(icons.grip) {
+            buf[(x, mid)].set_symbol(glyph).set_style(grip_style);
+        }
+    }
 }
 
 /// Where a pane's items sit on screen: inside the border, below the tracks
@@ -241,12 +279,48 @@ mod tests {
         }
     }
 
+    fn render_state(state: &mut AppState, w: u16, h: u16, theme: &Theme) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+        terminal.draw(|f| draw(f, state, theme)).unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect()
+    }
+
+    #[test]
+    fn borders_show_a_grip_only_with_mouse_on_and_light_up_on_hover() {
+        let theme = Theme::default();
+        let mut state = AppState::new(Vec::new());
+        assert!(!render_state(&mut state, 100, 30, &theme).contains("◂▸"));
+
+        state.appearance.mouse = true;
+        let screen = render_state(&mut state, 100, 30, &theme);
+        assert_eq!(screen.matches("◂▸").count(), 2, "one grip per border");
+        assert!(!screen.contains('┃'), "no highlight until hovered");
+
+        state.divider_hover = Some(Pane::Queue);
+        let screen = render_state(&mut state, 100, 30, &theme);
+        assert!(screen.contains("┃┃"), "hovered border is drawn heavy");
+
+        // No grips in the one-pane layout, where there's nothing to resize.
+        assert!(!render_state(&mut state, 60, 24, &theme).contains("◂▸"));
+    }
+
     #[test]
     fn ascii_pack_renders_only_ascii() {
         let theme = Theme {
             icons: icons::IconPack::Ascii.icons(),
             ..Theme::default()
         };
+        let mut mouse_state = AppState::new(Vec::new());
+        mouse_state.appearance.mouse = true;
+        mouse_state.divider_hover = Some(Pane::Library);
+        let screen = render_state(&mut mouse_state, 100, 30, &theme);
+        assert!(screen.is_ascii(), "grips and hover highlight are ascii too");
         for (w, h) in [(100, 30), (60, 24)] {
             let screen = render(w, h, &theme);
             let bad: String = screen.chars().filter(|c| !c.is_ascii()).collect();

@@ -142,6 +142,10 @@ pub struct AppState {
     pub tab_labels: [String; 2],
 
     pub hits: HitMap,
+    /// The pane border under the mouse pointer, highlighted as draggable.
+    pub divider_hover: Option<Pane>,
+    /// The pane border being dragged right now.
+    pub divider_drag: Option<Pane>,
 }
 
 impl AppState {
@@ -183,6 +187,8 @@ impl AppState {
             config_path_label: String::new(),
             tab_labels: ["Music".into(), "Settings".into()],
             hits: HitMap::default(),
+            divider_hover: None,
+            divider_drag: None,
         }
     }
 

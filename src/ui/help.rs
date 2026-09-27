@@ -113,7 +113,8 @@ fn content(state: &AppState, theme: &Theme) -> Vec<Line<'static>> {
     let mouse: &[&str] = if state.appearance.mouse {
         &[
             " Mouse: click to select, double-click to play, scroll to move,",
-            " click the progress bar to seek, drag a pane border to resize.",
+            " click the progress bar to seek, drag a pane border (◂▸) to resize,",
+            " double-click a border to reset it.",
         ]
     } else {
         &[" Mouse support is off; turn it on in the Settings tab (2)."]

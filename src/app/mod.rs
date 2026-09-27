@@ -56,8 +56,6 @@ pub struct App {
     failures: usize,
     /// Whether terminal mouse capture is currently on (follows the setting).
     mouse_captured: bool,
-    /// The side pane whose border is being dragged, if any.
-    drag: Option<Pane>,
     /// Last left click, for double-click detection.
     last_click: Option<(ratatui::layout::Position, Instant)>,
 }
@@ -100,7 +98,6 @@ impl App {
             failures: 0,
             mouse_captured: false,
             last_click: None,
-            drag: None,
         })
     }
 
