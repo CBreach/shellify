@@ -4,7 +4,7 @@
 
 Listen to your music from the terminal. Shellify is a keyboard-driven, full-screen TUI with vim-style navigation and a `:` command mode. It connects to your own streaming accounts.
 
-> **Status: early development.** The interface, keys and commands work, and audio plays through mpv. There's no account sign-in yet: the built-in demo playlists play the top YouTube search result for each song, and `:open` plays any URL or local file. The roadmap below lists what's coming next.
+> **Status: early development.** The interface, keys and commands work, and audio plays through mpv. There's no account sign-in yet. Until you add a provider, Shellify shows a demo library, labelled as such, whose songs play the top YouTube search result; `:open` plays any URL or local file. The roadmap below lists what's coming next.
 
 ## Roadmap
 

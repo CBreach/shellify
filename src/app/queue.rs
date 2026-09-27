@@ -84,6 +84,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::provider::Source;
 
     fn tracks(n: usize) -> Vec<Track> {
         (0..n)
@@ -92,7 +93,7 @@ mod tests {
                 title: format!("t{i}"),
                 artist: "a".into(),
                 duration: Duration::from_secs(60),
-                source: None,
+                source: Source::Demo,
             })
             .collect()
     }

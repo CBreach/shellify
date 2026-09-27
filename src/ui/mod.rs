@@ -223,7 +223,7 @@ mod tests {
     use ratatui::backend::TestBackend;
 
     use super::*;
-    use crate::provider::{Playlist, Track};
+    use crate::provider::{Playlist, Source, Track};
 
     fn render(w: u16, h: u16, theme: &Theme) -> String {
         let track = Track {
@@ -231,11 +231,12 @@ mod tests {
             title: "A Rather Long Song Title For Truncation".into(),
             artist: "Some Artist".into(),
             duration: Duration::from_secs(200),
-            source: None,
+            source: Source::Demo,
         };
         let mut state = AppState::new(vec![Playlist {
+            id: "liked".into(),
             name: "Liked Songs".into(),
-            tracks: vec![track.clone()],
+            tracks: Some(vec![track.clone()]),
         }]);
         state.queue.play_list(vec![track], 0);
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
@@ -397,6 +398,47 @@ mod tests {
             assert!(screen.contains("Set up Spotify"), "{w}x{h}:\n{screen}");
             assert!(state.hits.setup.is_some());
         }
+    }
+
+    #[test]
+    fn demo_library_says_so_and_how_to_add_a_provider() {
+        let mut state = AppState::new(crate::app::demo_library());
+        state.demo = true;
+        state.providers_key = Some("3".into());
+        for theme in [Theme::default(), Theme::default().monochrome()] {
+            let screen = render_state(&mut state, 120, 30, &theme);
+            assert!(screen.contains("Demo tracks"), "Library pane notice");
+            assert!(screen.contains("provider: press 3."), "{screen}");
+            assert!(screen.contains("demo tracks · press 3 to add a provider"));
+            assert!(
+                state.hits.tabs.iter().any(|(_, v)| *v == View::Providers),
+                "the badge is clickable"
+            );
+            // One pane at a time: the header still says so.
+            let narrow = render_state(&mut state, 60, 24, &theme);
+            assert!(narrow.contains("demo tracks"), "{narrow}");
+        }
+        state.demo = false;
+        let screen = render_state(&mut state, 120, 30, &Theme::default());
+        assert!(!screen.to_lowercase().contains("demo tracks"));
+    }
+
+    #[test]
+    fn loading_library_and_tracks_say_so() {
+        let mut state = AppState::new(Vec::new());
+        state.demo = false;
+        state.library_loading = true;
+        state.tracks_title = "Liked".into();
+        state.tracks_loading = true;
+        let screen = render_state(&mut state, 120, 30, &Theme::default());
+        assert!(screen.contains("Loading your library…"), "{screen}");
+        assert!(screen.contains("Loading…"));
+        assert!(!screen.contains("0 tracks"), "no count until loaded");
+        let ascii = Theme {
+            icons: icons::IconPack::Ascii.icons(),
+            ..Theme::default()
+        };
+        assert!(render_state(&mut state, 120, 30, &ascii).is_ascii());
     }
 
     #[test]

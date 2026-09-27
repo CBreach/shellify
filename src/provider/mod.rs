@@ -1,7 +1,10 @@
-//! Provider-agnostic music types. The `Provider` trait itself lands with the
-//! YouTube Music integration (roadmap step 3).
+//! Provider-agnostic music types and the `Provider` trait that each
+//! streaming service implements.
 
 use std::time::Duration;
+
+use anyhow::Result;
+use async_trait::async_trait;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Track {
@@ -10,15 +13,66 @@ pub struct Track {
     pub artist: String,
     /// Length from metadata; zero when unknown (the player reports the real one).
     pub duration: Duration,
-    /// URL or file the player can open directly. `None` means the app resolves
-    /// one from the track (see `app::demo::playback_source`).
-    pub source: Option<String>,
+    pub source: Source,
+}
+
+/// Where a track's audio comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Source {
+    /// A demo track with no real source: it plays the top YouTube search
+    /// result for "artist title" (see `app::demo::playback_source`).
+    Demo,
+    /// A track from a streaming service; `Track::id` is that service's id,
+    /// and the service's provider resolves it.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "constructed by the first real provider")
+    )]
+    Service(ProviderKind),
+    /// A URL or local file the player opens directly (`:open`).
+    Direct(String),
 }
 
 #[derive(Debug, Clone)]
 pub struct Playlist {
+    /// The provider's id for it, passed back to `Provider::playlist_tracks`.
+    pub id: String,
     pub name: String,
-    pub tracks: Vec<Track>,
+    /// `None` until fetched: providers list playlists without their tracks,
+    /// which load when the playlist is opened.
+    pub tracks: Option<Vec<Track>>,
+}
+
+/// What the player should open for a track.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlaybackSource {
+    /// A URL or file for mpv (with yt-dlp for YouTube pages).
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "constructed by the first real provider")
+    )]
+    Url(String),
+}
+
+/// A streaming service: where the library, search results and playable
+/// tracks come from. The app calls the async methods from spawned tasks and
+/// gets the results back as events, so they may take as long as they need.
+#[async_trait]
+pub trait Provider: Send + Sync {
+    fn kind(&self) -> ProviderKind;
+
+    /// The user's playlists, liked songs first. Tracks may be left out and
+    /// fetched with `playlist_tracks` when a playlist is opened.
+    async fn library(&self) -> Result<Vec<Playlist>>;
+
+    async fn playlist_tracks(&self, playlist_id: &str) -> Result<Vec<Track>>;
+
+    async fn search(&self, query: &str) -> Result<Vec<Track>>;
+
+    /// What to play for one of this provider's tracks. Called on the event
+    /// loop, so it must not block: slow work such as extracting a stream URL
+    /// belongs to the player (mpv hands YouTube pages to yt-dlp).
+    fn resolve_playback(&self, track: &Track) -> Result<PlaybackSource>;
 }
 
 /// The streaming services Shellify plans to support. The Providers tab lists

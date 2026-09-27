@@ -129,11 +129,20 @@ pub struct AppState {
 
     pub library: Vec<Playlist>,
     pub library_state: ListState,
+    /// No provider has been added: the library is the demo one, and the UI
+    /// says so.
+    pub demo: bool,
+    /// Where to add a provider, e.g. `press 3`, for the demo notice.
+    pub providers_key: Option<String>,
+    /// Waiting for the provider's playlists.
+    pub library_loading: bool,
 
     /// Title of the middle pane: the open playlist or search query.
     pub tracks_title: String,
     pub tracks: Vec<Track>,
     pub tracks_state: TableState,
+    /// Waiting for a playlist's tracks or search results.
+    pub tracks_loading: bool,
 
     pub queue: Queue,
     pub queue_state: ListState,
@@ -184,7 +193,7 @@ impl AppState {
     pub fn new(library: Vec<Playlist>) -> Self {
         let (tracks_title, tracks) = library
             .first()
-            .map(|p| (p.name.clone(), p.tracks.clone()))
+            .map(|p| (p.name.clone(), p.tracks.clone().unwrap_or_default()))
             .unwrap_or_default();
         Self {
             mode: Mode::Normal,
@@ -192,9 +201,13 @@ impl AppState {
             should_quit: false,
             library_state: ListState::default().with_selected(Some(0)),
             library,
+            demo: false,
+            providers_key: None,
+            library_loading: false,
             tracks_title,
             tracks_state: TableState::default().with_selected(Some(0)),
             tracks,
+            tracks_loading: false,
             queue: Queue::default(),
             queue_state: ListState::default().with_selected(Some(0)),
             playback: Playback {
@@ -290,6 +303,7 @@ impl AppState {
     pub fn show_tracks(&mut self, title: String, tracks: Vec<Track>) {
         self.tracks_title = title;
         self.tracks = tracks;
+        self.tracks_loading = false;
         self.tracks_state.select(Some(0));
         self.focus = Pane::Tracks;
         self.view = View::Music;

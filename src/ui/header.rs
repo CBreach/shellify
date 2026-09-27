@@ -6,6 +6,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::theme::Theme;
 use crate::app::action::{Pane, View};
+use crate::app::providers_hint;
 use crate::app::state::AppState;
 
 /// Top line: app name, the Music/Settings/Providers tabs, and a pane switcher when
@@ -47,8 +48,10 @@ pub fn draw(
         spans.push(Span::styled(format!("{} ", theme.icons.sep), muted));
         let used = Line::from(spans.clone()).width();
         let all: usize = Pane::ALL.iter().map(|p| pane_name(*p).len() + 2).sum();
+        // Keep room for the short demo badge.
+        let badge = if state.demo { "demo".len() + 2 } else { 0 };
         // Show all three pane names if they fit, else just the focused one.
-        let shown: Vec<Pane> = if used + all <= area.width as usize {
+        let shown: Vec<Pane> = if used + all + badge <= area.width as usize {
             Pane::ALL.to_vec()
         } else {
             vec![state.focus]
@@ -62,8 +65,49 @@ pub fn draw(
             });
         }
     }
+    let used = Line::from(spans.clone()).width() as u16;
     frame.render_widget(Line::from(spans), area);
+    if state.demo {
+        draw_demo_badge(frame, area, used, state, theme, &mut tabs);
+    }
     tabs
+}
+
+const DEMO: &str = "demo tracks";
+
+/// Right-aligned reminder that the library is a demo, as long as it fits.
+/// Clicking it opens the Providers tab.
+fn draw_demo_badge(
+    frame: &mut Frame,
+    area: Rect,
+    used: u16,
+    state: &AppState,
+    theme: &Theme,
+    tabs: &mut Vec<(Rect, View)>,
+) {
+    let muted = Style::new().fg(theme.muted);
+    let label = Span::styled(
+        DEMO,
+        Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+    );
+    let hint = format!(
+        " {} {} to add a provider ",
+        theme.icons.sep,
+        providers_hint(state)
+    );
+    let candidates = [
+        Line::from(vec![label.clone(), Span::styled(hint, muted)]),
+        Line::from(vec![label.clone(), Span::raw(" ")]),
+        Line::from(vec![label.content("demo"), Span::raw(" ")]),
+    ];
+    let room = area.width.saturating_sub(used + 1);
+    let Some(line) = candidates.into_iter().find(|l| l.width() as u16 <= room) else {
+        return;
+    };
+    let width = line.width() as u16;
+    let badge = Rect::new(area.right() - width, area.y, width, 1);
+    frame.render_widget(line, badge);
+    tabs.push((badge, View::Providers));
 }
 
 pub fn pane_name(pane: Pane) -> &'static str {

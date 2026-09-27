@@ -1,14 +1,18 @@
 pub mod action;
 mod demo;
 mod dispatch;
+mod library;
 mod mouse;
 pub(crate) mod pointer;
 pub mod queue;
 pub mod settings;
 pub mod state;
+#[cfg(test)]
+mod testing;
 pub mod visualizer;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -24,7 +28,7 @@ use crate::command::{self, Completion};
 use crate::config::Config;
 use crate::keymap::{KeyPress, KeyResult, Keymap};
 use crate::player::{self, LoadId, MpvOptions, MpvPlayer, Player, PlayerEvent};
-use crate::provider::ProviderKind;
+use crate::provider::{Provider, ProviderKind};
 use crate::themes;
 use crate::ui;
 use crate::ui::layout::PaneSizes;
@@ -32,14 +36,14 @@ use crate::ui::theme::Theme;
 use crate::ui::theme::theme_ids;
 use action::Pane;
 use action::{Action, View};
+use library::{ProviderEvent, Requests};
 use settings::Appearance;
 use state::{AppState, Hint, Mode};
 
 const FRAME: Duration = Duration::from_millis(33);
 const TICK: Duration = Duration::from_millis(250);
 
-/// Everything the main loop reacts to. Provider events join this enum in a
-/// later step so the loop stays a single `recv`.
+/// Everything the main loop reacts to, so the loop is a single `recv`.
 #[derive(Debug)]
 pub enum AppEvent {
     Input(Event),
@@ -47,6 +51,8 @@ pub enum AppEvent {
     /// Animation frame (~30fps), only sent while the visualizer is moving.
     Frame,
     Player(PlayerEvent),
+    /// A reply from a provider request (see `library`).
+    Provider(ProviderEvent),
 }
 
 pub struct App {
@@ -57,6 +63,14 @@ pub struct App {
     config_path: PathBuf,
     /// `None` when mpv couldn't be started or has died.
     player: Option<Box<dyn Player>>,
+    /// The streaming service in use; `None` shows the demo library.
+    provider: Option<Arc<dyn Provider>>,
+    /// Provider requests waiting for a reply.
+    requests: Requests,
+    /// The main loop's event channel, for tasks to report back on.
+    events: mpsc::UnboundedSender<AppEvent>,
+    /// Its receiving end, until `run` takes it.
+    inbox: Option<mpsc::UnboundedReceiver<AppEvent>>,
     /// The load whose events we act on; events from older loads are stale.
     current_load: Option<LoadId>,
     /// Tracks that failed to play in a row, to stop skipping through a queue
@@ -100,6 +114,9 @@ impl App {
             .clamped(Pane::Library),
         };
         state.config_path_label = display_path(&config_path);
+        state.providers_key = keymap.key_for("view providers");
+        // Until a provider is added (see `App::set_provider`).
+        state.demo = true;
         let (user_themes, problems) = themes::load_dir(&themes::themes_dir(&config_path));
         state.user_themes = user_themes;
         if !problems.is_empty() {
@@ -138,12 +155,17 @@ impl App {
             config.ui.icons,
             &state.user_themes,
         )?;
+        let (events, inbox) = mpsc::unbounded_channel();
         Ok(Self {
             state,
             keymap,
             theme,
             config_path,
             player: None,
+            provider: None,
+            requests: Requests::default(),
+            events,
+            inbox: Some(inbox),
             current_load: None,
             failures: 0,
             mouse_captured: false,
@@ -155,7 +177,8 @@ impl App {
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let tx = self.events.clone();
+        let mut rx = self.inbox.take().expect("App::run is called once");
         spawn_input(tx.clone());
         spawn_ticker(tx.clone());
         let (animate, animate_rx) = watch::channel(false);
@@ -168,7 +191,15 @@ impl App {
         }
         // Keep startup warnings (bad theme files...) rather than hiding them.
         if self.state.status.is_none() {
-            self.state.info("Welcome to Shellify! Press ? for help");
+            let welcome = if self.state.demo {
+                format!(
+                    "Welcome! {} to add a provider, ? for help",
+                    capitalize(&providers_hint(&self.state))
+                )
+            } else {
+                "Welcome to Shellify! Press ? for help".to_string()
+            };
+            self.state.info(welcome);
         }
         self.start_player(tx).await;
         // Clean up however the loop ends, including a draw error.
@@ -285,6 +316,7 @@ impl App {
             }
             AppEvent::Frame => self.on_frame(),
             AppEvent::Player(event) => self.on_player_event(event),
+            AppEvent::Provider(event) => self.on_provider_event(event),
         }
     }
 
@@ -483,6 +515,27 @@ fn provider_hints(keymap: &Keymap) -> Vec<Hint> {
     .iter()
     .filter_map(|&(cmd, label)| keymap.key_for(cmd).map(|key| Hint { key, label }))
     .collect()
+}
+
+/// The demo library, for UI tests.
+#[cfg(test)]
+pub(crate) fn demo_library() -> Vec<crate::provider::Playlist> {
+    demo::library()
+}
+
+/// How to get to the Providers tab: `press 3`, or the command if unbound.
+pub(crate) fn providers_hint(state: &AppState) -> String {
+    match &state.providers_key {
+        Some(key) => format!("press {key}"),
+        None => "run :providers".to_string(),
+    }
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    chars
+        .next()
+        .map_or_else(String::new, |c| c.to_uppercase().chain(chars).collect())
 }
 
 /// `/Users/me/.config/x` -> `~/.config/x`, for status messages.

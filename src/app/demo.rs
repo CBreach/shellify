@@ -1,9 +1,9 @@
-//! Placeholder library so the TUI has something to show. Replaced by the
-//! YouTube Music provider in roadmap step 3.
+//! The demo library: placeholder playlists shown until a provider is added,
+//! so a new user can try Shellify out. The UI labels it as a demo.
 
 use std::time::Duration;
 
-use crate::provider::{Playlist, Track};
+use crate::provider::{Playlist, Source, Track};
 
 fn track(id: &str, title: &str, artist: &str, secs: u64) -> Track {
     Track {
@@ -11,18 +11,15 @@ fn track(id: &str, title: &str, artist: &str, secs: u64) -> Track {
         title: title.into(),
         artist: artist.into(),
         duration: Duration::from_secs(secs),
-        source: None,
+        source: Source::Demo,
     }
 }
 
-/// What the player should open for `track`. Demo tracks have no real source,
+/// What the player should open for a demo track. They have no real source,
 /// so they play the first YouTube search result for "artist title" via
-/// yt-dlp. Step 3 replaces this with the provider's `resolve_playback`.
+/// yt-dlp.
 pub fn playback_source(track: &Track) -> String {
-    track
-        .source
-        .clone()
-        .unwrap_or_else(|| format!("ytdl://ytsearch1:{} {}", track.artist, track.title))
+    format!("ytdl://ytsearch1:{} {}", track.artist, track.title)
 }
 
 pub fn library() -> Vec<Playlist> {
@@ -47,16 +44,19 @@ pub fn library() -> Vec<Playlist> {
     ];
     vec![
         Playlist {
+            id: "demo:liked".into(),
             name: "Liked Songs".into(),
-            tracks: liked,
+            tracks: Some(liked),
         },
         Playlist {
+            id: "demo:focus".into(),
             name: "Deep Focus".into(),
-            tracks: focus,
+            tracks: Some(focus),
         },
         Playlist {
+            id: "demo:chill".into(),
             name: "Chill Mix".into(),
-            tracks: chill,
+            tracks: Some(chill),
         },
     ]
 }
@@ -65,7 +65,7 @@ pub fn library() -> Vec<Playlist> {
 pub fn search(library: &[Playlist], query: &str) -> Vec<Track> {
     let q = query.to_lowercase();
     let mut results: Vec<Track> = Vec::new();
-    for t in library.iter().flat_map(|p| &p.tracks) {
+    for t in library.iter().filter_map(|p| p.tracks.as_ref()).flatten() {
         let hit = t.title.to_lowercase().contains(&q) || t.artist.to_lowercase().contains(&q);
         if hit && !results.iter().any(|r| r.id == t.id) {
             results.push(t.clone());
