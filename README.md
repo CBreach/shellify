@@ -59,7 +59,7 @@ cargo run --release
 | `/` | Search |
 | `?` | Help: every key and command |
 | `v` / `V` | Toggle the visualizer / next style |
-| `1` / `2` | Music / Settings tab |
+| `1` / `2` / `3` | Music / Settings / Providers tab |
 | `:` | Command mode |
 | `q` | Quit |
 
@@ -80,7 +80,7 @@ Press `:` then type a command. Tab completes command names, and ↑/↓ browse h
 | `:open <url-or-file>` | Play a URL (anything yt-dlp supports) or a local audio file |
 | `:queue`, `:focus <pane>` | Jump to a pane |
 | `:help` | Show the help overlay |
-| `:settings`, `:view <music\|settings>` | Switch tab |
+| `:settings`, `:providers`, `:view <music\|settings\|providers>` | Switch tab |
 | `:resize library 30`, `:resize queue +5`, `:resize reset` | Set a side pane's width (% of the window) |
 | `:theme <name>`, `:theme import <file>`, `:theme reload` | Switch, import or reload color themes |
 | `:visualizer [on\|off\|next\|bars\|mirror\|wave\|dots]` | Toggle the visualizer or pick its style |
@@ -102,9 +102,15 @@ Shellify reads `~/.config/shellify/config.toml` (or `$XDG_CONFIG_HOME/shellify/c
 
 Press `2` (or `:settings`) to open **Settings**. There you can pick a theme preset, change any color, switch icon pack and set the color mode, and you see the result as you go. Use `j`/`k` to move between rows and `h`/`l` (or ←/→) to change a value. Press `Enter` on a color to type a name or `#hex`. Press `1` or `Esc` to go back to the music. Every change is saved to your `config.toml`, and your key bindings and comments there are left untouched.
 
+### Providers tab
+
+Press `3` (or `:providers`) to see the streaming services Shellify supports: YouTube Music, Spotify and Apple Music, each with a pixel-art logo. The highlighted one bounces. Move with `h`/`l` (or the arrows, or `j`/`k`), then press `Enter`, or click a card with the mouse on, to open its setup screen. Sign-in isn't built yet, so for now the setup screen tells you what setup will need.
+
+Choosing a provider also switches Shellify to that provider's colors: red for YouTube Music, green for Spotify, pink for Apple Music. You can pick another theme in Settings at any time.
+
 ### Themes
 
-Pick a preset (`default`, `nord`, `gruvbox`, `catppuccin`) and optionally override individual colors. A color can be a name (`cyan`, `light-blue`), `#rrggbb` or an ANSI index (`0`–`255`).
+Pick a preset (`default`, `nord`, `gruvbox`, `catppuccin`, or a provider theme: `youtube-music`, `spotify`, `apple-music`) and optionally override individual colors. A color can be a name (`cyan`, `light-blue`), `#rrggbb` or an ANSI index (`0`–`255`).
 
 ```toml
 [theme]
