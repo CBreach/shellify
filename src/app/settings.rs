@@ -2,6 +2,7 @@
 //! Rendering lives in `ui/settings.rs`; saving in `config::save_appearance`.
 
 use crate::ui::icons::IconPack;
+use crate::ui::layout::PaneSizes;
 use crate::ui::theme::{ColorMode, PRESETS, ThemeConfig};
 
 /// Everything the Settings tab edits. Mirrors `[theme]` and `[ui]` in config.toml.
@@ -13,6 +14,8 @@ pub struct Appearance {
     /// Mouse capture: click, double-click and scroll. Off by default because
     /// it takes over the terminal's own click-drag text selection.
     pub mouse: bool,
+    /// Side pane widths, set by dragging pane borders or `:resize`.
+    pub panes: PaneSizes,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

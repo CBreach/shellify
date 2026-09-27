@@ -80,6 +80,7 @@ Press `:` then type a command. Tab completes command names, and ↑/↓ browse h
 | `:queue`, `:focus <pane>` | Jump to a pane |
 | `:help` | Show the help overlay |
 | `:settings`, `:view <music\|settings>` | Switch tab |
+| `:resize library 30`, `:resize queue +5`, `:resize reset` | Set a side pane's width (% of the window) |
 | `:q` | Quit |
 
 ## Configuration
@@ -126,7 +127,7 @@ mouse = false      # click, double-click and scroll; also in the Settings tab
 
 ### Mouse
 
-Mouse support is off by default. Turn it on under **Settings → Mouse** (or set `mouse = true` in `[ui]`). While it's on, your terminal's own click-and-drag text selection needs **Shift** held in most terminals. With it on, you can click to focus a pane or select a row, double-click to play or open, scroll to move the selection, click the header tabs, and click the progress bar to seek. Every mouse action also has a key.
+Mouse support is off by default. Turn it on under **Settings → Mouse** (or set `mouse = true` in `[ui]`). While it's on, your terminal's own click-and-drag text selection needs **Shift** held in most terminals. With it on, you can click to focus a pane or select a row, double-click to play or open, scroll to move the selection, click the header tabs, click the progress bar to seek, and **drag the border between two panes to resize them**. Every mouse action also has a key.
 
 ## Your accounts & privacy
 

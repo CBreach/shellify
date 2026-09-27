@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::app::action::{Action, Focus, Pane, RepeatMode, Seek, Select, View, Volume};
+use crate::app::action::{Action, Focus, Pane, RepeatMode, Resize, Seek, Select, View, Volume};
 
 pub struct CommandInfo {
     pub name: &'static str,
@@ -37,6 +37,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         "repeat",
         "repeat [off|all|one]",
         "Set repeat mode, or cycle it",
+    ),
+    cmd(
+        "resize",
+        "resize <library|queue> <N|+N|-N>, resize reset",
+        "Set a side pane's width in % of the window",
     ),
     cmd("search", "search [query]", "Search, or open the / prompt"),
     cmd(
@@ -80,6 +85,7 @@ pub fn parse(input: &str) -> Result<Action, String> {
         "q" | "quit" => no_arg(Action::Quit),
         "help" => no_arg(Action::Help),
         "settings" => no_arg(Action::View(View::Settings)),
+        "resize" => parse_resize(arg).map(Action::Resize),
         "view" => match arg {
             "music" => Ok(Action::View(View::Music)),
             "settings" => Ok(Action::View(View::Settings)),
@@ -145,6 +151,31 @@ fn parse_volume(arg: &str) -> Result<Volume, String> {
             Ok(v) if v <= 100 => Ok(Volume::Set(v)),
             _ => Err(err()),
         }
+    }
+}
+
+fn parse_resize(arg: &str) -> Result<Resize, String> {
+    let err = || format!("resize: expected `library|queue N`, `+N`, `-N` or `reset`, got {arg:?}");
+    if arg == "reset" {
+        return Ok(Resize::Reset);
+    }
+    let (pane, amount) = arg.split_once(char::is_whitespace).ok_or_else(err)?;
+    let pane = match pane {
+        "library" => Pane::Library,
+        "queue" => Pane::Queue,
+        _ => return Err(err()),
+    };
+    let amount = amount.trim();
+    if amount.starts_with(['+', '-']) {
+        amount
+            .parse()
+            .map(|d| Resize::Change(pane, d))
+            .map_err(|_| err())
+    } else {
+        amount
+            .parse()
+            .map(|n| Resize::Set(pane, n))
+            .map_err(|_| err())
     }
 }
 
@@ -249,6 +280,17 @@ mod tests {
             Ok(Action::Focus(Focus::Pane(Pane::Queue)))
         );
         assert_eq!(parse("settings"), Ok(Action::View(View::Settings)));
+        assert_eq!(parse("resize reset"), Ok(Action::Resize(Resize::Reset)));
+        assert_eq!(
+            parse("resize library 30"),
+            Ok(Action::Resize(Resize::Set(Pane::Library, 30)))
+        );
+        assert_eq!(
+            parse("resize queue -5"),
+            Ok(Action::Resize(Resize::Change(Pane::Queue, -5)))
+        );
+        assert!(parse("resize tracks 50").is_err());
+        assert!(parse("resize library").is_err());
         assert_eq!(parse("view music"), Ok(Action::View(View::Music)));
         assert!(parse("view mixtape").is_err());
     }

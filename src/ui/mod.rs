@@ -32,7 +32,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
     );
 
     state.hits = HitMap::default();
-    let areas = match layout::compute(frame.area(), state.focus) {
+    let areas = match layout::compute(frame.area(), state.focus, state.appearance.panes) {
         Screen::Normal(areas) => areas,
         Screen::TooSmall => {
             draw_too_small(frame, theme);
@@ -54,6 +54,10 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
                 }
                 state.hits.lists.push(list_hit(pane, area));
             }
+            if !areas.narrow {
+                state.hits.dividers = dividers(&areas.panes, areas.main);
+                state.hits.panes_area = Some(areas.main);
+            }
         }
     }
     state.hits.progress = now_playing::draw(frame, areas.now_playing, state, theme);
@@ -61,6 +65,19 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
     if state.help_open {
         state.hits.help = Some(help::draw(frame, state, theme));
     }
+}
+
+/// Grab zones for resizing: the two border columns where Library meets
+/// Tracks, and where Tracks meets Queue.
+fn dividers(panes: &[(Pane, Rect)], main: Rect) -> Vec<(Rect, Pane)> {
+    let [(_, library), (_, tracks), _] = panes else {
+        return Vec::new();
+    };
+    let zone = |x: u16| Rect::new(x, main.y, 2, main.height);
+    vec![
+        (zone(library.right() - 1), Pane::Library),
+        (zone(tracks.right() - 1), Pane::Queue),
+    ]
 }
 
 /// Where a pane's items sit on screen: inside the border, below the tracks

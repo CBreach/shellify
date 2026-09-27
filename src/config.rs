@@ -8,6 +8,7 @@ use toml_edit::{DocumentMut, Value};
 
 use crate::app::settings::Appearance;
 use crate::ui::icons::IconPack;
+use crate::ui::layout::PaneSizes;
 use crate::ui::theme::{ColorMode, ThemeConfig};
 
 #[derive(Debug, Default, Deserialize)]
@@ -27,6 +28,9 @@ pub struct UiConfig {
     pub color: ColorMode,
     pub icons: IconPack,
     pub mouse: bool,
+    /// Side pane widths in percent of the window (see `PaneSizes`).
+    pub library_width: Option<u16>,
+    pub queue_width: Option<u16>,
 }
 
 impl Config {
@@ -74,6 +78,8 @@ pub fn save_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
         ("error", t.error.as_deref()),
         ("selection_fg", t.selection_fg.as_deref()),
     ];
+    let panes = appearance.panes;
+    let default_panes = PaneSizes::default();
     let ui_values = [
         (
             "color",
@@ -84,6 +90,14 @@ pub fn save_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
             (appearance.icons != IconPack::default()).then(|| appearance.icons.label().into()),
         ),
         ("mouse", appearance.mouse.then(|| true.into())),
+        (
+            "library_width",
+            (panes.library != default_panes.library).then(|| i64::from(panes.library).into()),
+        ),
+        (
+            "queue_width",
+            (panes.queue != default_panes.queue).then(|| i64::from(panes.queue).into()),
+        ),
     ];
     let theme_values = theme_values.map(|(k, v)| (k, v.map(Value::from)));
     set_table(&mut doc, "theme", &theme_values);
@@ -137,6 +151,10 @@ mod tests {
             },
             icons: IconPack::Ascii,
             mouse: true,
+            panes: PaneSizes {
+                library: 30,
+                queue: 28,
+            },
             ..Default::default()
         };
         save_appearance(&path, &appearance).unwrap();
@@ -158,6 +176,12 @@ mod tests {
         assert_eq!(loaded.ui.icons, IconPack::Ascii);
         assert!(loaded.ui.mouse);
         assert!(saved.contains("mouse = true"), "{saved}");
+        assert!(saved.contains("library_width = 30"), "{saved}");
+        assert!(
+            !saved.contains("queue_width"),
+            "default width isn't written"
+        );
+        assert_eq!(loaded.ui.library_width, Some(30));
         assert_eq!(loaded.keys["ctrl-n"], "next");
 
         // Back to defaults: the [theme] and [ui] tables disappear entirely.

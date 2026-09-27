@@ -4,6 +4,8 @@
 //! - click: focus a pane / select a row / switch tab / seek in the progress bar
 //! - double-click: activate (same as Enter)
 //! - scroll: move the selection (or scroll help)
+//! - drag a pane border: resize the side panes (saved on release; `:resize`
+//!   does the same from the keyboard)
 
 use std::time::{Duration, Instant};
 
@@ -11,8 +13,9 @@ use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 
 use super::App;
-use super::action::{Action, Seek, Select, View};
+use super::action::{Action, Pane, Seek, Select, View};
 use super::state::Mode;
+use crate::ui::layout::PaneSizes;
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 const HELP_SCROLL_STEP: u16 = 3;
@@ -43,7 +46,31 @@ impl App {
             return;
         }
         match ev.kind {
-            MouseEventKind::Down(MouseButton::Left) => self.click(pos),
+            MouseEventKind::Down(MouseButton::Left) => {
+                let divider = self
+                    .state
+                    .hits
+                    .dividers
+                    .iter()
+                    .find(|(r, _)| r.contains(pos));
+                if let Some(&(_, pane)) = divider {
+                    self.drag = Some(pane);
+                    self.last_click = None;
+                } else {
+                    self.click(pos);
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let Some(pane) = self.drag {
+                    self.drag_border(pane, pos.x);
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                // Save once, when the drag ends, not on every motion event.
+                if self.drag.take().is_some() {
+                    self.save_pane_sizes();
+                }
+            }
             MouseEventKind::ScrollDown => self.scroll(pos, 1),
             MouseEventKind::ScrollUp => self.scroll(pos, -1),
             _ => {}
@@ -98,6 +125,26 @@ impl App {
         }
     }
 
+    /// Resizes `pane` so its inner border follows column `x`.
+    fn drag_border(&mut self, pane: Pane, x: u16) {
+        let Some(area) = self.state.hits.panes_area else {
+            return;
+        };
+        // Library's border is its last column; Queue's is its first.
+        let cols = match pane {
+            Pane::Library => x.saturating_sub(area.x) + 1,
+            Pane::Queue => area.right().saturating_sub(x),
+            Pane::Tracks => return,
+        };
+        let pct = PaneSizes::pct_of(cols, area.width);
+        let panes = self.state.appearance.panes.with(pane, pct);
+        self.state.appearance.panes = panes;
+        self.state.info(format!(
+            "Library {}%, Queue {}% (release to save)",
+            panes.library, panes.queue
+        ));
+    }
+
     /// The wheel moves the selection in whatever is under the pointer.
     fn scroll(&mut self, pos: Position, delta: i32) {
         if self.state.view == View::Music {
@@ -127,14 +174,17 @@ mod tests {
     use ratatui::backend::TestBackend;
 
     use super::*;
-    use crate::app::action::Pane;
     use crate::config::Config;
     use crate::ui;
 
     fn app_with_mouse(on: bool) -> App {
+        app_saving_to(on, PathBuf::from("/nonexistent/shellify-test.toml"))
+    }
+
+    fn app_saving_to(mouse: bool, path: PathBuf) -> App {
         let mut config = Config::default();
-        config.ui.mouse = on;
-        App::new(&config, PathBuf::from("/nonexistent/shellify-test.toml")).unwrap()
+        config.ui.mouse = mouse;
+        App::new(&config, path).unwrap()
     }
 
     fn draw(app: &mut App, w: u16, h: u16) {
@@ -253,6 +303,117 @@ mod tests {
         assert_eq!(app.state.help_scroll, HELP_SCROLL_STEP);
         click(&mut app, 0, 0);
         assert!(!app.state.help_open);
+    }
+
+    fn pane_width(app: &App, pane: Pane) -> u16 {
+        app.state
+            .hits
+            .lists
+            .iter()
+            .find(|l| l.pane == pane)
+            .unwrap()
+            .area
+            .width
+    }
+
+    #[test]
+    fn dragging_a_border_resizes_and_saves_on_release() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut app = app_saving_to(true, path.clone());
+        draw(&mut app, 100, 30);
+        assert_eq!(pane_width(&app, Pane::Library), 22);
+
+        let (border, pane) = app.state.hits.dividers[0];
+        assert_eq!(pane, Pane::Library);
+        mouse(
+            &mut app,
+            MouseEventKind::Down(MouseButton::Left),
+            border.x,
+            border.y + 3,
+        );
+        mouse(
+            &mut app,
+            MouseEventKind::Drag(MouseButton::Left),
+            34,
+            border.y + 3,
+        );
+        assert!(!path.exists(), "nothing saved mid-drag");
+        mouse(
+            &mut app,
+            MouseEventKind::Up(MouseButton::Left),
+            34,
+            border.y + 3,
+        );
+
+        draw(&mut app, 100, 30);
+        assert_eq!(pane_width(&app, Pane::Library), 35);
+        assert_eq!(
+            app.state.tracks_state.selected(),
+            Some(0),
+            "drag didn't click"
+        );
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("library_width = 35"), "{saved}");
+    }
+
+    #[test]
+    fn dragging_the_queue_border_left_widens_the_queue() {
+        let mut app = app_with_mouse(true);
+        draw(&mut app, 100, 30);
+        let (border, pane) = app.state.hits.dividers[1];
+        assert_eq!(pane, Pane::Queue);
+        mouse(
+            &mut app,
+            MouseEventKind::Down(MouseButton::Left),
+            border.x + 1,
+            border.y,
+        );
+        mouse(
+            &mut app,
+            MouseEventKind::Drag(MouseButton::Left),
+            60,
+            border.y,
+        );
+        mouse(
+            &mut app,
+            MouseEventKind::Up(MouseButton::Left),
+            60,
+            border.y,
+        );
+        draw(&mut app, 100, 30);
+        assert_eq!(pane_width(&app, Pane::Queue), 40);
+        assert!(pane_width(&app, Pane::Tracks) >= 30);
+    }
+
+    #[test]
+    fn dragging_is_clamped_and_narrow_layouts_have_no_borders() {
+        let mut app = app_with_mouse(true);
+        draw(&mut app, 100, 30);
+        let (border, _) = app.state.hits.dividers[0];
+        mouse(
+            &mut app,
+            MouseEventKind::Down(MouseButton::Left),
+            border.x,
+            border.y,
+        );
+        mouse(
+            &mut app,
+            MouseEventKind::Drag(MouseButton::Left),
+            99,
+            border.y,
+        );
+        assert_eq!(app.state.appearance.panes.library, PaneSizes::MAX_PCT);
+        mouse(
+            &mut app,
+            MouseEventKind::Drag(MouseButton::Left),
+            0,
+            border.y,
+        );
+        assert_eq!(app.state.appearance.panes.library, PaneSizes::MIN_PCT);
+
+        draw(&mut app, 60, 24);
+        assert!(app.state.hits.dividers.is_empty());
     }
 
     #[test]

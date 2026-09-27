@@ -68,6 +68,10 @@ pub struct HitMap {
     /// Settings rows on screen: (row area, index into `SettingRow::ALL`).
     pub settings_rows: Vec<(Rect, usize)>,
     pub help: Option<Rect>,
+    /// Draggable pane borders: (grab area, the side pane it resizes).
+    pub dividers: Vec<(Rect, Pane)>,
+    /// The area the three panes share, for converting a drag to a percentage.
+    pub panes_area: Option<Rect>,
 }
 
 #[derive(Debug, Clone, Copy)]

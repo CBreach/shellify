@@ -3,13 +3,14 @@ use std::time::Duration;
 
 use directories::BaseDirs;
 
-use super::action::{Action, Focus, Pane, Seek, Select, View, Volume};
+use super::action::{Action, Focus, Pane, Resize, Seek, Select, View, Volume};
 use super::settings::SettingRow;
-use super::state::Mode;
+use super::state::{Mode, StatusLevel};
 use super::{App, demo, set_mouse_capture};
 use crate::config;
 use crate::player::{EndReason, PlayerEvent};
 use crate::provider::Track;
+use crate::ui::layout::PaneSizes;
 use crate::ui::theme::{Theme, parse_color};
 
 /// Consecutive playback failures after which we stop instead of skipping on.
@@ -50,6 +51,7 @@ impl App {
                 self.state.help_scroll = 0;
             }
             Action::View(view) => self.state.view = view,
+            Action::Resize(resize) => self.resize(resize),
 
             Action::TogglePause => {
                 if self.state.queue.current().is_some() {
@@ -216,6 +218,40 @@ impl App {
             *slot = value;
         }
         self.apply_appearance();
+    }
+
+    /// `:resize`: change a side pane's width and save it.
+    fn resize(&mut self, resize: Resize) {
+        let panes = self.state.appearance.panes;
+        self.state.appearance.panes = match resize {
+            Resize::Reset => PaneSizes::default(),
+            Resize::Set(pane, pct) => panes.with(pane, pct),
+            Resize::Change(pane, delta) => {
+                let current = panes.get(pane).unwrap_or(0);
+                let pct = (i32::from(current) + i32::from(delta)).clamp(0, 100) as u16;
+                panes.with(pane, pct)
+            }
+        };
+        self.save_pane_sizes();
+    }
+
+    /// Saves the current pane sizes (with the rest of the settings) and
+    /// reports them, replacing the generic "Saved" message.
+    pub(super) fn save_pane_sizes(&mut self) {
+        self.apply_appearance();
+        if self
+            .state
+            .status
+            .as_ref()
+            .is_some_and(|s| s.level == StatusLevel::Error)
+        {
+            return;
+        }
+        let p = self.state.appearance.panes;
+        self.state.info(format!(
+            "Library {}%, Queue {}% (saved)",
+            p.library, p.queue
+        ));
     }
 
     /// Rebuilds the live theme from the Settings values and saves them.

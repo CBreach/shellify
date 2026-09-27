@@ -9,6 +9,8 @@ pub enum Action {
     Help,
     /// Switch between the Music and Settings tabs.
     View(View),
+    /// Change a side pane's width (percent of the window).
+    Resize(Resize),
 
     // Playback
     TogglePause,
@@ -86,6 +88,13 @@ pub enum Focus {
     Next,
     Prev,
     Pane(Pane),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Resize {
+    Reset,
+    Set(Pane, u16),
+    Change(Pane, i16),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
