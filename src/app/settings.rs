@@ -211,7 +211,7 @@ mod tests {
         a.step(SettingRow::Preset, 1);
         assert_eq!(a.theme.preset.as_deref(), Some("nord"));
         a.step(SettingRow::Preset, -2);
-        assert_eq!(a.theme.preset.as_deref(), Some("catppuccin"));
+        assert_eq!(a.theme.preset.as_deref(), Some("apple-music"));
         a.step(SettingRow::Preset, 1);
         assert_eq!(a.theme.preset, None, "default is stored as no preset");
     }

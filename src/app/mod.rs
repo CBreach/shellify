@@ -24,6 +24,7 @@ use crate::command::{self, Completion};
 use crate::config::Config;
 use crate::keymap::{KeyPress, KeyResult, Keymap};
 use crate::player::{self, LoadId, MpvOptions, MpvPlayer, Player, PlayerEvent};
+use crate::provider::ProviderKind;
 use crate::themes;
 use crate::ui;
 use crate::ui::layout::PaneSizes;
@@ -79,6 +80,7 @@ impl App {
         state.help_entries = keymap.help_entries();
         state.hints = pane_hints(&keymap);
         state.settings_hints = settings_hints(&keymap);
+        state.provider_hints = provider_hints(&keymap);
         state.appearance = Appearance {
             theme: config.theme.clone(),
             color: config.ui.color,
@@ -110,12 +112,26 @@ impl App {
             state.error(format!("Theme {name:?} not found; using the default theme"));
             state.appearance.theme.preset = None;
         }
-        state.tab_labels = [("view music", "Music"), ("view settings", "Settings")].map(
-            |(cmd, name)| match keymap.key_for(cmd) {
-                Some(key) => format!("{key} {name}"),
-                None => name.to_string(),
-            },
-        );
+        // Start on the provider whose theme is in use, if any.
+        if let Some(i) = state
+            .appearance
+            .theme
+            .preset
+            .as_deref()
+            .and_then(ProviderKind::for_theme)
+            .and_then(|kind| ProviderKind::ALL.iter().position(|k| *k == kind))
+        {
+            state.provider_cursor = i;
+        }
+        state.tab_labels = [
+            ("view music", "Music"),
+            ("view settings", "Settings"),
+            ("view providers", "Providers"),
+        ]
+        .map(|(cmd, name)| match keymap.key_for(cmd) {
+            Some(key) => format!("{key} {name}"),
+            None => name.to_string(),
+        });
         let theme = Theme::from_config(
             &state.appearance.theme,
             config.ui.color,
@@ -190,11 +206,18 @@ impl App {
         self.state.queue.current().is_some() && !p.paused && !p.loading
     }
 
-    /// Runs the animation clock only while the visualizer is shown and
-    /// moving, so an idle Shellify doesn't redraw 30 times a second.
+    /// Whether the Providers tab is showing its bouncing logo.
+    fn bouncing(&self) -> bool {
+        self.state.view == View::Providers && !self.state.help_open
+    }
+
+    /// Runs the animation clock only while something moves (the visualizer
+    /// playing or settling, or a bouncing provider logo), so an idle
+    /// Shellify doesn't redraw 30 times a second.
     fn sync_animation(&mut self) {
-        let want = self.state.appearance.visualizer
+        let visualizer = self.state.appearance.visualizer
             && (self.is_playing() || !self.state.visualizer.at_rest());
+        let want = visualizer || self.bouncing();
         if !want {
             self.last_frame = None;
         }
@@ -211,6 +234,9 @@ impl App {
         self.last_frame = Some(now);
         let playing = self.is_playing();
         self.state.visualizer.tick(dt.as_secs_f32(), playing);
+        if self.bouncing() {
+            self.state.bounce += dt.as_secs_f32();
+        }
     }
 
     async fn start_player(&mut self, tx: mpsc::UnboundedSender<AppEvent>) {
@@ -269,6 +295,13 @@ impl App {
         }
         if self.state.help_open {
             self.on_help_key(key);
+            return;
+        }
+        if self.state.provider_setup.is_some() {
+            // The setup screen has nothing to do yet but close.
+            if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q')) {
+                self.state.provider_setup = None;
+            }
             return;
         }
         match self.state.mode {
@@ -434,6 +467,17 @@ fn settings_hints(keymap: &Keymap) -> Vec<Hint> {
         ("select +1", "move"),
         ("focus next", "change"),
         ("play", "edit"),
+        ("view music", "music"),
+    ]
+    .iter()
+    .filter_map(|&(cmd, label)| keymap.key_for(cmd).map(|key| Hint { key, label }))
+    .collect()
+}
+
+fn provider_hints(keymap: &Keymap) -> Vec<Hint> {
+    [
+        ("focus next", "next"),
+        ("play", "set up"),
         ("view music", "music"),
     ]
     .iter()

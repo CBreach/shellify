@@ -11,7 +11,7 @@ use super::state::{Mode, StatusLevel};
 use super::{App, demo, set_mouse_capture};
 use crate::config;
 use crate::player::{EndReason, PlayerEvent};
-use crate::provider::Track;
+use crate::provider::{ProviderKind, Track};
 use crate::themes;
 use crate::ui::layout::PaneSizes;
 use crate::ui::theme::{Theme, parse_color, theme_ids};
@@ -45,6 +45,9 @@ impl App {
     pub(super) fn dispatch(&mut self, action: Action) {
         tracing::debug!(?action, "dispatch");
         if self.state.view == View::Settings && self.settings_action(&action) {
+            return;
+        }
+        if self.state.view == View::Providers && self.providers_action(&action) {
             return;
         }
         match action {
@@ -174,6 +177,54 @@ impl App {
             _ => return false,
         }
         true
+    }
+
+    /// On the Providers tab, every direction moves between providers and
+    /// Enter opens the highlighted one's setup screen.
+    fn providers_action(&mut self, action: &Action) -> bool {
+        let last = ProviderKind::ALL.len() as i64 - 1;
+        let cursor = self.state.provider_cursor as i64;
+        let target = match action {
+            Action::Select(Select::By(delta)) => cursor + i64::from(*delta),
+            Action::Select(Select::First) => 0,
+            Action::Select(Select::Last) => last,
+            Action::Focus(Focus::Next) | Action::Seek(Seek::Forward(_)) => cursor + 1,
+            Action::Focus(Focus::Prev) | Action::Seek(Seek::Back(_)) => cursor - 1,
+            Action::Focus(Focus::Pane(_)) => {
+                self.state.view = View::Music;
+                return false;
+            }
+            Action::PlaySelected => {
+                self.open_provider_setup(self.state.provider_cursor);
+                return true;
+            }
+            _ => return false,
+        };
+        let target = target.clamp(0, last) as usize;
+        if target != self.state.provider_cursor {
+            self.state.provider_cursor = target;
+            // Each newly highlighted logo starts its hop from the ground.
+            self.state.bounce = 0.0;
+        }
+        true
+    }
+
+    /// Opens a provider's setup screen and switches to its theme.
+    pub(super) fn open_provider_setup(&mut self, index: usize) {
+        let Some(&kind) = ProviderKind::ALL.get(index) else {
+            return;
+        };
+        self.state.provider_cursor = index;
+        self.state.provider_setup = Some(kind);
+        self.state.bounce = 0.0;
+        let theme = &mut self.state.appearance.theme.preset;
+        if theme.as_deref() != Some(kind.theme()) {
+            *theme = Some(kind.theme().to_string());
+            self.apply_appearance();
+            if !self.status_is_error() {
+                self.state.info(format!("Theme: {}", kind.name()));
+            }
+        }
     }
 
     fn step_setting(&mut self, delta: i32) {
@@ -939,11 +990,85 @@ mod theme_tests {
         let mut app = app_at(&config);
         app.state.view = View::Settings;
         app.state.settings_cursor = 0; // Theme row
-        // default -> nord -> gruvbox -> catppuccin -> zebra
-        for _ in 0..4 {
+        // The built-ins (default, nord, gruvbox, catppuccin and the three
+        // provider themes), then zebra.
+        for _ in 0..crate::ui::theme::PRESETS.len() {
             app.dispatch(Action::Focus(Focus::Next));
         }
         assert_eq!(app.state.appearance.theme.preset.as_deref(), Some("zebra"));
         assert_eq!(app.theme.accent, Color::White);
+    }
+}
+
+#[cfg(test)]
+mod provider_tests {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::style::Color;
+
+    use super::*;
+    use crate::config::Config;
+
+    fn app() -> (tempfile::TempDir, App) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        let mut app = App::new(&Config::default(), config).unwrap();
+        app.dispatch(Action::View(View::Providers));
+        (dir, app)
+    }
+
+    fn key(app: &mut App, code: KeyCode) {
+        app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
+    }
+
+    #[test]
+    fn arrows_move_between_providers_and_stop_at_the_ends() {
+        let (_dir, mut app) = app();
+        assert_eq!(app.state.provider_cursor, 0);
+        key(&mut app, KeyCode::Char('l'));
+        key(&mut app, KeyCode::Right);
+        assert_eq!(app.state.provider_cursor, 2);
+        key(&mut app, KeyCode::Char('l'));
+        assert_eq!(app.state.provider_cursor, 2, "clamped");
+        key(&mut app, KeyCode::Char('k'));
+        assert_eq!(app.state.provider_cursor, 1);
+        assert_eq!(app.state.view, View::Providers, "stays on the tab");
+    }
+
+    #[test]
+    fn moving_restarts_the_bounce() {
+        let (_dir, mut app) = app();
+        assert!(app.bouncing());
+        app.state.bounce = 0.5;
+        key(&mut app, KeyCode::Char('l'));
+        assert_eq!(app.state.bounce, 0.0);
+        app.dispatch(Action::View(View::Music));
+        assert!(!app.bouncing(), "no animation off the tab");
+    }
+
+    #[test]
+    fn enter_opens_setup_and_switches_to_the_provider_theme() {
+        let (dir, mut app) = app();
+        key(&mut app, KeyCode::Char('l')); // Spotify
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.state.provider_setup, Some(ProviderKind::Spotify));
+        assert_eq!(
+            app.state.appearance.theme.preset.as_deref(),
+            Some("spotify")
+        );
+        assert_eq!(app.theme.accent, Color::Rgb(0x1e, 0xd7, 0x60), "green");
+        let saved = std::fs::read_to_string(dir.path().join("config.toml")).unwrap();
+        assert!(saved.contains("preset = \"spotify\""), "{saved}");
+
+        // The setup screen captures keys until it's closed.
+        key(&mut app, KeyCode::Char('h'));
+        assert_eq!(app.state.provider_cursor, 1);
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(app.state.provider_setup, None);
+        assert_eq!(app.state.view, View::Providers);
+
+        // Restarting with that theme highlights its provider.
+        let config = Config::load(&dir.path().join("config.toml")).unwrap();
+        let app = App::new(&config, dir.path().join("config.toml")).unwrap();
+        assert_eq!(app.state.provider_cursor, 1);
     }
 }

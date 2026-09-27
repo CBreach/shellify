@@ -34,6 +34,7 @@ pub const COMMANDS: &[CommandInfo] = &[
         "prev",
         "Previous track (or restart the current one)",
     ),
+    cmd("providers", "providers", "Open the Providers tab"),
     cmd("queue", "queue", "Focus the queue"),
     cmd("quit", "q, quit", "Quit Shellify"),
     cmd(
@@ -60,7 +61,7 @@ pub const COMMANDS: &[CommandInfo] = &[
         "theme <name>, theme import <file>, theme reload",
         "Switch, import (.toml or base16 .yaml) or reload themes",
     ),
-    cmd("view", "view <music|settings>", "Switch tab"),
+    cmd("view", "view <music|settings|providers>", "Switch tab"),
     cmd(
         "visualizer",
         "visualizer [on|off|next|bars|mirror|wave|dots], visualizer fade [on|off]",
@@ -98,13 +99,17 @@ pub fn parse(input: &str) -> Result<Action, String> {
         "q" | "quit" => no_arg(Action::Quit),
         "help" => no_arg(Action::Help),
         "settings" => no_arg(Action::View(View::Settings)),
+        "providers" => no_arg(Action::View(View::Providers)),
         "resize" => parse_resize(arg).map(Action::Resize),
         "theme" => parse_theme(arg).map(Action::Theme),
         "visualizer" | "viz" => parse_visualizer(arg).map(Action::Visualizer),
         "view" => match arg {
             "music" => Ok(Action::View(View::Music)),
             "settings" => Ok(Action::View(View::Settings)),
-            _ => Err(format!("view: expected music or settings, got {arg:?}")),
+            "providers" => Ok(Action::View(View::Providers)),
+            _ => Err(format!(
+                "view: expected music, settings or providers, got {arg:?}"
+            )),
         },
         "pause" => no_arg(Action::TogglePause),
         "next" => no_arg(Action::Next),
@@ -372,6 +377,8 @@ mod tests {
         assert!(parse("resize tracks 50").is_err());
         assert!(parse("resize library").is_err());
         assert_eq!(parse("view music"), Ok(Action::View(View::Music)));
+        assert_eq!(parse("view providers"), Ok(Action::View(View::Providers)));
+        assert_eq!(parse("providers"), Ok(Action::View(View::Providers)));
         assert!(parse("view mixtape").is_err());
     }
 

@@ -9,7 +9,7 @@ use crate::app::settings::{Appearance, SettingRow};
 use crate::app::visualizer::Visualizer;
 use crate::command::LineEditor;
 use crate::keymap::HelpEntry;
-use crate::provider::{Playlist, Track};
+use crate::provider::{Playlist, ProviderKind, Track};
 use crate::themes::UserTheme;
 use crate::ui::layout::PaneSizes;
 
@@ -71,6 +71,10 @@ pub struct HitMap {
     /// Settings rows on screen: (row area, index into `SettingRow::ALL`).
     pub settings_rows: Vec<(Rect, usize)>,
     pub help: Option<Rect>,
+    /// Provider cards (or list rows): (area, index into `ProviderKind::ALL`).
+    pub providers: Vec<(Rect, usize)>,
+    /// The provider setup screen, while open.
+    pub setup: Option<Rect>,
     /// Draggable pane borders: (grab area, the side pane it resizes).
     pub dividers: Vec<(Rect, Pane)>,
     /// The area the three panes share, for converting a drag to a percentage.
@@ -146,6 +150,7 @@ pub struct AppState {
     /// Footer hints per pane, indexed like `Pane::ALL`.
     pub hints: [Vec<Hint>; 3],
     pub settings_hints: Vec<Hint>,
+    pub provider_hints: Vec<Hint>,
 
     pub view: View,
     pub settings_cursor: usize,
@@ -155,7 +160,14 @@ pub struct AppState {
     /// Where settings are saved, for display (`~/.config/...`).
     pub config_path_label: String,
     /// Header tab labels with their keys, e.g. `1 Music`.
-    pub tab_labels: [String; 2],
+    pub tab_labels: [String; 3],
+
+    /// The highlighted provider on the Providers tab.
+    pub provider_cursor: usize,
+    /// The provider whose setup screen is open.
+    pub provider_setup: Option<ProviderKind>,
+    /// Seconds into the highlighted logo's bounce (the animation clock).
+    pub bounce: f32,
 
     pub hits: HitMap,
     /// Custom themes from `themes/` next to the config.
@@ -200,12 +212,16 @@ impl AppState {
             help_entries: Vec::new(),
             hints: Default::default(),
             settings_hints: Vec::new(),
+            provider_hints: Vec::new(),
             view: View::Music,
             settings_cursor: 0,
             appearance: Appearance::default(),
             setting_line: LineEditor::default(),
             config_path_label: String::new(),
-            tab_labels: ["Music".into(), "Settings".into()],
+            tab_labels: ["Music".into(), "Settings".into(), "Providers".into()],
+            provider_cursor: 0,
+            provider_setup: None,
+            bounce: 0.0,
             hits: HitMap::default(),
             user_themes: Vec::new(),
             visualizer: Visualizer::default(),
@@ -231,8 +247,10 @@ impl AppState {
     }
 
     pub fn hints_for_focus(&self) -> &[Hint] {
-        if self.view == View::Settings {
-            return &self.settings_hints;
+        match self.view {
+            View::Settings => return &self.settings_hints,
+            View::Providers => return &self.provider_hints,
+            View::Music => {}
         }
         let i = Pane::ALL.iter().position(|p| *p == self.focus).unwrap_or(0);
         &self.hints[i]

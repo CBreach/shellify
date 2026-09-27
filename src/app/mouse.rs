@@ -51,6 +51,14 @@ impl App {
             }
             return;
         }
+        if self.state.provider_setup.is_some() {
+            if let MouseEventKind::Down(MouseButton::Left) = ev.kind
+                && !self.state.hits.setup.is_some_and(|r| r.contains(pos))
+            {
+                self.state.provider_setup = None;
+            }
+            return;
+        }
         // Don't yank focus around while the user is typing in a prompt.
         if self.state.mode != Mode::Normal {
             return;
@@ -95,6 +103,13 @@ impl App {
                 let ratio = seek_ratio(bar.x, bar.width, pos.x);
                 let target = duration.mul_f64(ratio);
                 self.dispatch(Action::Seek(Seek::To(target)));
+            }
+            return;
+        }
+        if self.state.view == View::Providers {
+            // One click opens setup (no double-click needed: a card is a button).
+            if let Some(&(_, i)) = hits.providers.iter().find(|(r, _)| r.contains(pos)) {
+                self.open_provider_setup(i);
             }
             return;
         }
@@ -342,6 +357,31 @@ mod tests {
         let (row, i) = app.state.hits.settings_rows[3];
         click(&mut app, row.x + 1, row.y);
         assert_eq!(app.state.settings_cursor, i);
+    }
+
+    #[test]
+    fn clicking_a_provider_opens_its_setup_and_outside_closes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = app_saving_to(true, dir.path().join("config.toml"));
+        app.dispatch(Action::View(View::Providers));
+        draw(&mut app, 100, 30);
+        let (card, i) = app.state.hits.providers[2];
+        click(&mut app, card.x + 3, card.y + 3);
+        assert_eq!(i, 2);
+        assert_eq!(
+            app.state.provider_setup,
+            Some(crate::provider::ProviderKind::AppleMusic)
+        );
+
+        draw(&mut app, 100, 30);
+        let popup = app.state.hits.setup.unwrap();
+        click(&mut app, popup.x + 2, popup.y + 2);
+        assert!(
+            app.state.provider_setup.is_some(),
+            "a click inside keeps it"
+        );
+        click(&mut app, 0, 0);
+        assert!(app.state.provider_setup.is_none(), "outside closes it");
     }
 
     #[test]

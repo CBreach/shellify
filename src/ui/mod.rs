@@ -4,7 +4,9 @@ mod help;
 pub mod icons;
 pub mod layout;
 mod library;
+mod logos;
 mod now_playing;
+mod providers;
 mod queue;
 mod settings;
 mod text;
@@ -51,6 +53,9 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
         View::Settings => {
             state.hits.settings_rows = settings::draw(frame, areas.main, state, theme);
         }
+        View::Providers => {
+            state.hits.providers = providers::draw(frame, areas.main, state, theme);
+        }
         View::Music => {
             for &(pane, area) in &areas.panes {
                 match pane {
@@ -72,6 +77,9 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
     }
     state.hits.progress = now_playing::draw(frame, areas.now_playing, state, theme);
     cmdline::draw(frame, areas.cmdline, state, theme);
+    if let Some(kind) = state.provider_setup {
+        state.hits.setup = Some(providers::draw_setup(frame, state, theme, kind));
+    }
     if state.help_open {
         state.hits.help = Some(help::draw(frame, state, theme));
     }
@@ -338,6 +346,56 @@ mod tests {
             let screen = render(w, h, &theme);
             let bad: String = screen.chars().filter(|c| !c.is_ascii()).collect();
             assert!(bad.is_empty(), "{w}x{h} non-ascii: {bad:?}");
+        }
+    }
+
+    #[test]
+    fn providers_tab_renders_at_every_contract_size() {
+        let mut state = AppState::new(Vec::new());
+        state.view = View::Providers;
+        state.provider_cursor = 2;
+        for theme in [Theme::default(), Theme::default().monochrome()] {
+            for (w, h) in [(160, 48), (100, 30), (80, 24), (60, 20), (60, 24), (40, 12)] {
+                let screen = render_state(&mut state, w, h, &theme);
+                assert!(
+                    screen.contains("Apple Music"),
+                    "{w}x{h}: highlighted provider shown"
+                );
+                assert!(screen.contains("Providers"), "{w}x{h}");
+                assert_eq!(state.hits.providers.len(), 3, "{w}x{h}: all clickable");
+            }
+        }
+    }
+
+    #[test]
+    fn providers_tab_and_setup_are_ascii_with_the_ascii_pack() {
+        let theme = Theme {
+            icons: icons::IconPack::Ascii.icons(),
+            ..Theme::default()
+        };
+        let mut state = AppState::new(Vec::new());
+        state.view = View::Providers;
+        for mono in [false, true] {
+            let theme = if mono { theme.monochrome() } else { theme };
+            for (w, h) in [(160, 48), (100, 30), (60, 20)] {
+                state.provider_setup = None;
+                let screen = render_state(&mut state, w, h, &theme);
+                assert!(screen.is_ascii(), "{w}x{h} mono={mono}");
+                state.provider_setup = Some(crate::provider::ProviderKind::YouTubeMusic);
+                let screen = render_state(&mut state, w, h, &theme);
+                assert!(screen.is_ascii(), "{w}x{h} mono={mono} setup");
+            }
+        }
+    }
+
+    #[test]
+    fn provider_setup_screen_renders_over_any_tab() {
+        let mut state = AppState::new(Vec::new());
+        state.provider_setup = Some(crate::provider::ProviderKind::Spotify);
+        for (w, h) in [(160, 48), (80, 24), (40, 12)] {
+            let screen = render_state(&mut state, w, h, &Theme::default());
+            assert!(screen.contains("Set up Spotify"), "{w}x{h}:\n{screen}");
+            assert!(state.hits.setup.is_some());
         }
     }
 

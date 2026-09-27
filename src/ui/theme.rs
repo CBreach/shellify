@@ -76,7 +76,15 @@ pub struct Theme {
     pub icons: &'static Icons,
 }
 
-pub const PRESETS: &[&str] = &["default", "nord", "gruvbox", "catppuccin"];
+pub const PRESETS: &[&str] = &[
+    "default",
+    "nord",
+    "gruvbox",
+    "catppuccin",
+    "youtube-music",
+    "spotify",
+    "apple-music",
+];
 
 /// Every selectable theme id: the built-in presets, then custom themes. A
 /// custom theme with a built-in's name replaces it rather than appearing twice.
@@ -127,6 +135,35 @@ impl Theme {
                 muted: rgb(0x585b70),
                 error: rgb(0xf38ba8),
                 selection_fg: rgb(0x1e1e2e),
+                mono: false,
+                icons: IconPack::Unicode.icons(),
+            },
+            // Provider themes (picked automatically when you choose one on
+            // the Providers tab): each service's own colors on a dark UI.
+            "youtube-music" => Self {
+                accent: rgb(0xff0033),
+                text: rgb(0xf1f1f1),
+                muted: rgb(0x717171),
+                error: rgb(0xffb74d),
+                selection_fg: rgb(0xffffff),
+                mono: false,
+                icons: IconPack::Unicode.icons(),
+            },
+            "spotify" => Self {
+                accent: rgb(0x1ed760),
+                text: rgb(0xffffff),
+                muted: rgb(0x535353),
+                error: rgb(0xf15e6c),
+                selection_fg: rgb(0x000000),
+                mono: false,
+                icons: IconPack::Unicode.icons(),
+            },
+            "apple-music" => Self {
+                accent: rgb(0xff5c8d),
+                text: rgb(0xf5f5f7),
+                muted: rgb(0x6e6e73),
+                error: rgb(0xff9f0a),
+                selection_fg: rgb(0xffffff),
                 mono: false,
                 icons: IconPack::Unicode.icons(),
             },
@@ -271,6 +308,9 @@ mod tests {
         for name in PRESETS {
             assert!(Theme::preset(name).is_some(), "{name}");
         }
+        for provider in crate::provider::ProviderKind::ALL {
+            assert!(PRESETS.contains(&provider.theme()), "{provider:?}");
+        }
     }
 
     #[test]
@@ -327,7 +367,16 @@ mod tests {
 
         assert_eq!(
             theme_ids(&user),
-            ["default", "nord", "gruvbox", "catppuccin", "ocean"],
+            [
+                "default",
+                "nord",
+                "gruvbox",
+                "catppuccin",
+                "youtube-music",
+                "spotify",
+                "apple-music",
+                "ocean"
+            ],
             "a shadowing theme isn't listed twice"
         );
 

@@ -38,6 +38,7 @@ const DEFAULT_BINDINGS: &[(&str, &str)] = &[
     ("V", "visualizer next"),
     ("1", "view music"),
     ("2", "view settings"),
+    ("3", "view providers"),
     ("q", "quit"),
 ];
 
@@ -192,6 +193,7 @@ fn describe(cmd: &str) -> String {
         "visualizer next" => "Next visualizer style",
         "view music" => "Music tab",
         "view settings" => "Settings tab",
+        "view providers" => "Providers tab",
         "quit" => "Quit",
         other => return format!(":{other}"),
     };
