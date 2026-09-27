@@ -13,7 +13,8 @@ const VALUE_WIDTH: usize = 10;
 
 /// The Settings tab: one row per option, the selected one highlighted, with
 /// a live preview (color swatches, icon glyphs) next to each value.
-pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
+/// Returns the on-screen area of each visible row, for mouse clicks.
+pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) -> Vec<(Rect, usize)> {
     let block = Block::bordered()
         .border_set(if theme.mono {
             theme.icons.border_focus
@@ -37,6 +38,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     ];
     let heading = Style::new().fg(theme.accent).add_modifier(Modifier::BOLD);
     let mut selected_line = 0;
+    let mut row_lines = Vec::new();
     for (i, &row) in SettingRow::ALL.iter().enumerate() {
         match row {
             SettingRow::Mouse => {
@@ -50,6 +52,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
         if selected {
             selected_line = lines.len();
         }
+        row_lines.push((lines.len(), i));
         lines.push(row_line(state, theme, row, selected));
     }
     lines.push(Line::from(""));
@@ -65,6 +68,16 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     // Keep the selected row on screen in short terminals.
     let scroll = (selected_line + 2).saturating_sub(inner.height as usize) as u16;
     frame.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), area);
+
+    let visible = usize::from(scroll)..usize::from(scroll) + usize::from(inner.height);
+    row_lines
+        .into_iter()
+        .filter(|(line, _)| visible.contains(line))
+        .map(|(line, i)| {
+            let y = inner.y + (line - usize::from(scroll)) as u16;
+            (Rect::new(inner.x, y, inner.width, 1), i)
+        })
+        .collect()
 }
 
 fn row_line(state: &AppState, theme: &Theme, row: SettingRow, selected: bool) -> Line<'static> {

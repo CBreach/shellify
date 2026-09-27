@@ -14,13 +14,13 @@ mod tracks;
 use std::time::Duration;
 
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Flex, Layout};
+use ratatui::layout::{Alignment, Constraint, Flex, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph, Wrap};
 
 use crate::app::action::{Pane, View};
-use crate::app::state::AppState;
+use crate::app::state::{AppState, HitMap, ListHit};
 use layout::Screen;
 use theme::Theme;
 
@@ -31,6 +31,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
         frame.area(),
     );
 
+    state.hits = HitMap::default();
     let areas = match layout::compute(frame.area(), state.focus) {
         Screen::Normal(areas) => areas,
         Screen::TooSmall => {
@@ -39,9 +40,11 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
         }
     };
 
-    header::draw(frame, areas.header, state, theme, areas.narrow);
+    state.hits.tabs = header::draw(frame, areas.header, state, theme, areas.narrow);
     match state.view {
-        View::Settings => settings::draw(frame, areas.main, state, theme),
+        View::Settings => {
+            state.hits.settings_rows = settings::draw(frame, areas.main, state, theme);
+        }
         View::Music => {
             for &(pane, area) in &areas.panes {
                 match pane {
@@ -49,13 +52,38 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
                     Pane::Tracks => tracks::draw(frame, area, state, theme),
                     Pane::Queue => queue::draw(frame, area, state, theme),
                 }
+                state.hits.lists.push(list_hit(pane, area));
             }
         }
     }
-    now_playing::draw(frame, areas.now_playing, state, theme);
+    state.hits.progress = now_playing::draw(frame, areas.now_playing, state, theme);
     cmdline::draw(frame, areas.cmdline, state, theme);
     if state.help_open {
-        help::draw(frame, state, theme);
+        state.hits.help = Some(help::draw(frame, state, theme));
+    }
+}
+
+/// Where a pane's items sit on screen: inside the border, below the tracks
+/// table's header row, two lines per queue entry.
+fn list_hit(pane: Pane, area: Rect) -> ListHit {
+    let inner = area.inner(Margin::new(1, 1));
+    let (rows, item_height) = match pane {
+        Pane::Library => (inner, 1),
+        Pane::Tracks => (
+            Rect {
+                y: inner.y + 1,
+                height: inner.height.saturating_sub(1),
+                ..inner
+            },
+            1,
+        ),
+        Pane::Queue => (inner, 2),
+    };
+    ListHit {
+        pane,
+        area,
+        rows,
+        item_height,
     }
 }
 

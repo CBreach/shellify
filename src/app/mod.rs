@@ -1,12 +1,13 @@
 pub mod action;
 mod demo;
 mod dispatch;
+mod mouse;
 pub mod queue;
 pub mod settings;
 pub mod state;
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{
@@ -53,6 +54,8 @@ pub struct App {
     failures: usize,
     /// Whether terminal mouse capture is currently on (follows the setting).
     mouse_captured: bool,
+    /// Last left click, for double-click detection.
+    last_click: Option<(ratatui::layout::Position, Instant)>,
 }
 
 impl App {
@@ -84,6 +87,7 @@ impl App {
             current_load: None,
             failures: 0,
             mouse_captured: false,
+            last_click: None,
         })
     }
 
@@ -148,6 +152,7 @@ impl App {
     fn handle(&mut self, event: AppEvent) {
         match event {
             AppEvent::Input(Event::Key(key)) if key.kind == KeyEventKind::Press => self.on_key(key),
+            AppEvent::Input(Event::Mouse(mouse)) => self.on_mouse(mouse),
             AppEvent::Input(_) => {} // resize etc.: the next draw picks it up
             AppEvent::Tick => {
                 // Periodic redraw; also clears expired status messages.
