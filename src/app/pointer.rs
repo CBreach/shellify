@@ -21,6 +21,10 @@ static CHANGED: AtomicBool = AtomicBool::new(false);
 /// the state actually changes.
 pub fn set_resize(on: bool) {
     let was = CHANGED.swap(on, Ordering::SeqCst);
+    // Tests have no terminal (see `set_mouse_capture`).
+    if cfg!(test) {
+        return;
+    }
     if let Some(seq) = transition(was, on) {
         let mut out = std::io::stdout();
         if let Err(e) = out.write_all(seq.as_bytes()).and_then(|()| out.flush()) {
@@ -32,12 +36,6 @@ pub fn set_resize(on: bool) {
 /// Puts the default pointer back if we changed it (on quit and on panic).
 pub fn restore() {
     set_resize(false);
-}
-
-/// Whether the resize pointer is currently shown (for tests).
-#[cfg(test)]
-pub fn is_resize() -> bool {
-    CHANGED.load(Ordering::SeqCst)
 }
 
 /// The sequence to send when going from `was` to `now`, if any.

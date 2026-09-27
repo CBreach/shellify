@@ -57,6 +57,8 @@ pub struct App {
     failures: usize,
     /// Whether terminal mouse capture is currently on (follows the setting).
     mouse_captured: bool,
+    /// Whether we asked the terminal for the resize pointer (see `pointer`).
+    pointer_resize: bool,
     /// Last left click, for double-click detection.
     last_click: Option<(ratatui::layout::Position, Instant)>,
 }
@@ -99,6 +101,7 @@ impl App {
             current_load: None,
             failures: 0,
             mouse_captured: false,
+            pointer_resize: false,
             last_click: None,
         })
     }
@@ -114,6 +117,22 @@ impl App {
         }
         self.state.info("Welcome to Shellify! Press ? for help");
         self.start_player(tx).await;
+        // Clean up however the loop ends, including a draw error.
+        let result = self.event_loop(&mut terminal, &mut rx).await;
+        if let Some(mut player) = self.player.take() {
+            player.shutdown().await;
+        }
+        // Always release the mouse, or the shell keeps receiving escape codes.
+        set_mouse_capture(false);
+        pointer::restore();
+        result
+    }
+
+    async fn event_loop(
+        &mut self,
+        terminal: &mut DefaultTerminal,
+        rx: &mut mpsc::UnboundedReceiver<AppEvent>,
+    ) -> Result<()> {
         while !self.state.should_quit {
             terminal.draw(|frame| ui::draw(frame, &mut self.state, &self.theme))?;
             let Some(event) = rx.recv().await else { break };
@@ -123,12 +142,6 @@ impl App {
                 self.handle(event);
             }
         }
-        if let Some(mut player) = self.player.take() {
-            player.shutdown().await;
-        }
-        // Always release the mouse, or the shell keeps receiving escape codes.
-        set_mouse_capture(false);
-        pointer::restore();
         Ok(())
     }
 
@@ -325,6 +338,11 @@ fn pane_hints(keymap: &Keymap) -> [Vec<Hint>; 3] {
 /// Turns terminal mouse reporting on or off. With it on, the terminal's own
 /// click-drag selection needs Shift held (in most emulators).
 pub(crate) fn set_mouse_capture(on: bool) {
+    // Tests drive the app without a terminal; writing this to the real stdout
+    // would switch on mouse reporting in the developer's shell.
+    if cfg!(test) {
+        return;
+    }
     let mut out = std::io::stdout();
     let result = if on {
         crossterm::execute!(out, EnableMouseCapture)
