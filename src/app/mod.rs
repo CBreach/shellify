@@ -46,7 +46,7 @@ impl App {
         Ok(Self {
             state,
             keymap,
-            theme: Theme::from_config(&config.theme)?,
+            theme: Theme::from_config(&config.theme, config.ui.color)?,
             last_tick: Instant::now(),
         })
     }

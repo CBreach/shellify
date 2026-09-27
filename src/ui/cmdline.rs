@@ -1,6 +1,6 @@
 use ratatui::Frame;
 use ratatui::layout::{Position, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
 use unicode_width::UnicodeWidthStr;
@@ -14,13 +14,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
         Mode::Command => (":", &state.command_line),
         Mode::Search => ("/", &state.search_line),
         Mode::Normal => {
-            let mode = Span::styled(
-                " NORMAL ",
-                Style::new()
-                    .fg(theme.selection_fg)
-                    .bg(theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            );
+            let mode = Span::styled(" NORMAL ", theme.selection());
             // Errors get a ✗ as well as color, so they read in monochrome too.
             let status = match &state.status {
                 Some(s) if s.level == StatusLevel::Error => {

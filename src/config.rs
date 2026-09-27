@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use directories::BaseDirs;
 use serde::Deserialize;
 
-use crate::ui::theme::ThemeConfig;
+use crate::ui::theme::{ColorMode, ThemeConfig};
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -14,6 +14,14 @@ pub struct Config {
     /// An empty command unbinds the key.
     pub keys: HashMap<String, String>,
     pub theme: ThemeConfig,
+    pub ui: UiConfig,
+}
+
+/// `[ui]`: display options that aren't colors.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UiConfig {
+    pub color: ColorMode,
 }
 
 impl Config {

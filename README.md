@@ -95,6 +95,15 @@ accent = "#f5c2e7"      # focused borders, selection, progress bar
 # selection_fg = "black"  # text drawn on the accent color
 ```
 
+### Color
+
+Shellify honors [`NO_COLOR`](https://no-color.org) and `TERM=dumb`. Without color, it marks focus with a heavier border, selection with reverse video, and status with symbols.
+
+```toml
+[ui]
+color = "auto"   # auto (default) | always | never
+```
+
 ## Your accounts & privacy
 
 Shellify signs in to *your* accounts and ships with no credentials. Anything you provide (cookies, tokens, API client IDs) stays on your machine: in your OS keychain or your user config/cache directories, never in the project folder.

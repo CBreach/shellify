@@ -53,28 +53,27 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
 /// A bordered pane, highlighted when focused.
 fn pane_block(title: String, pane: Pane, state: &AppState, theme: &Theme) -> Block<'static> {
     let focused = state.focus == pane;
-    let border = if focused {
-        Style::new().fg(theme.accent)
+    let (border, title_style) = if focused {
+        let accent = Style::new().fg(theme.accent);
+        (accent, accent.add_modifier(Modifier::BOLD))
     } else {
-        Style::new().fg(theme.muted)
+        (Style::new().fg(theme.muted), Style::new().fg(theme.text))
     };
-    let title_style = if focused {
-        Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
+    // Without color, a heavier border marks the focused pane.
+    let border_type = if focused && theme.mono {
+        BorderType::Thick
     } else {
-        Style::new().fg(theme.text)
+        BorderType::Rounded
     };
     Block::bordered()
-        .border_type(BorderType::Rounded)
+        .border_type(border_type)
         .border_style(border)
         .title(Line::from(format!(" {title} ")).style(title_style))
 }
 
 fn highlight_style(pane: Pane, state: &AppState, theme: &Theme) -> Style {
     if state.focus == pane {
-        Style::new()
-            .fg(theme.selection_fg)
-            .bg(theme.accent)
-            .add_modifier(Modifier::BOLD)
+        theme.selection()
     } else {
         Style::new().add_modifier(Modifier::REVERSED)
     }

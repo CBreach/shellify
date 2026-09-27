@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use anyhow::{Result, anyhow, bail};
-use ratatui::style::Color;
+use ratatui::style::{Color, Modifier, Style};
 use serde::Deserialize;
 
 /// The `[theme]` table in config.toml: an optional preset plus per-color
@@ -18,6 +18,34 @@ pub struct ThemeConfig {
     pub selection_fg: Option<String>,
 }
 
+/// `[ui] color`: whether to use color at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ColorMode {
+    /// Color unless `NO_COLOR` is set (non-empty) or `TERM=dumb`.
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+impl ColorMode {
+    /// Resolves the mode against the environment (see <https://no-color.org>).
+    pub fn enabled(self) -> bool {
+        let no_color = std::env::var("NO_COLOR").ok();
+        let term = std::env::var("TERM").ok();
+        self.enabled_with(no_color.as_deref(), term.as_deref())
+    }
+
+    fn enabled_with(self, no_color: Option<&str>, term: Option<&str>) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Never => false,
+            Self::Auto => no_color.is_none_or(str::is_empty) && term != Some("dumb"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     /// Focused borders, selection background, playing track, progress bar.
@@ -29,6 +57,9 @@ pub struct Theme {
     pub error: Color,
     /// Text drawn on top of `accent` (selected rows, mode badge).
     pub selection_fg: Color,
+    /// No colors at all: every signal must survive via symbols, weight
+    /// (bold, thick borders) and reverse video.
+    pub mono: bool,
 }
 
 pub const PRESETS: &[&str] = &["default", "nord", "gruvbox", "catppuccin"];
@@ -43,6 +74,7 @@ impl Theme {
                 muted: Color::DarkGray,
                 error: Color::Red,
                 selection_fg: Color::Black,
+                mono: false,
             },
             "nord" => Self {
                 accent: rgb(0x88c0d0),
@@ -50,6 +82,7 @@ impl Theme {
                 muted: rgb(0x4c566a),
                 error: rgb(0xbf616a),
                 selection_fg: rgb(0x2e3440),
+                mono: false,
             },
             "gruvbox" => Self {
                 accent: rgb(0xfabd2f),
@@ -57,6 +90,7 @@ impl Theme {
                 muted: rgb(0x665c54),
                 error: rgb(0xfb4934),
                 selection_fg: rgb(0x282828),
+                mono: false,
             },
             "catppuccin" => Self {
                 accent: rgb(0xcba6f7),
@@ -64,13 +98,48 @@ impl Theme {
                 muted: rgb(0x585b70),
                 error: rgb(0xf38ba8),
                 selection_fg: rgb(0x1e1e2e),
+                mono: false,
             },
             _ => return None,
         };
         Some(theme)
     }
 
-    pub fn from_config(config: &ThemeConfig) -> Result<Self> {
+    /// The theme with every color reset to the terminal default.
+    pub fn monochrome(self) -> Self {
+        Self {
+            accent: Color::Reset,
+            text: Color::Reset,
+            muted: Color::Reset,
+            error: Color::Reset,
+            selection_fg: Color::Reset,
+            mono: true,
+        }
+    }
+
+    /// Selected row / mode badge: accent background, or reverse video in mono.
+    pub fn selection(&self) -> Style {
+        let style = Style::new().add_modifier(Modifier::BOLD);
+        if self.mono {
+            style.add_modifier(Modifier::REVERSED)
+        } else {
+            style.fg(self.selection_fg).bg(self.accent)
+        }
+    }
+
+    pub fn from_config(config: &ThemeConfig, color: ColorMode) -> Result<Self> {
+        Ok(Self::from_theme_config(config)?.with_color_mode(color))
+    }
+
+    pub fn with_color_mode(self, color: ColorMode) -> Self {
+        if color.enabled() {
+            self
+        } else {
+            self.monochrome()
+        }
+    }
+
+    fn from_theme_config(config: &ThemeConfig) -> Result<Self> {
         let name = config.preset.as_deref().unwrap_or("default");
         let mut theme = Self::preset(name).ok_or_else(|| {
             anyhow!(
@@ -128,7 +197,7 @@ mod tests {
     #[test]
     fn empty_config_is_default_theme() {
         assert_eq!(
-            Theme::from_config(&ThemeConfig::default()).unwrap(),
+            Theme::from_theme_config(&ThemeConfig::default()).unwrap(),
             Theme::default()
         );
     }
@@ -142,9 +211,27 @@ mod tests {
 
     #[test]
     fn overrides_apply_on_top_of_preset() {
-        let theme = Theme::from_config(&config(Some("nord"), Some("#ff8800"))).unwrap();
+        let theme = Theme::from_theme_config(&config(Some("nord"), Some("#ff8800"))).unwrap();
         assert_eq!(theme.accent, Color::Rgb(0xff, 0x88, 0x00));
         assert_eq!(theme.error, Theme::preset("nord").unwrap().error);
+    }
+
+    #[test]
+    fn color_mode_honors_no_color_and_dumb_terminals() {
+        assert!(ColorMode::Auto.enabled_with(None, Some("xterm-256color")));
+        assert!(ColorMode::Auto.enabled_with(Some(""), None));
+        assert!(!ColorMode::Auto.enabled_with(Some("1"), None));
+        assert!(!ColorMode::Auto.enabled_with(None, Some("dumb")));
+        assert!(ColorMode::Always.enabled_with(Some("1"), Some("dumb")));
+        assert!(!ColorMode::Never.enabled_with(None, None));
+    }
+
+    #[test]
+    fn monochrome_selection_uses_reverse_video() {
+        let mono = Theme::default().monochrome();
+        assert!(mono.selection().add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(mono.selection().bg, None);
+        assert_eq!(Theme::default().selection().bg, Some(Color::Cyan));
     }
 
     #[test]
@@ -156,8 +243,8 @@ mod tests {
 
     #[test]
     fn bad_values_name_the_key() {
-        let err = Theme::from_config(&config(None, Some("blurple"))).unwrap_err();
+        let err = Theme::from_theme_config(&config(None, Some("blurple"))).unwrap_err();
         assert!(err.to_string().contains("theme.accent"));
-        assert!(Theme::from_config(&config(Some("vaporwave"), None)).is_err());
+        assert!(Theme::from_theme_config(&config(Some("vaporwave"), None)).is_err());
     }
 }
