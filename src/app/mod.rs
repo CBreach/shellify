@@ -23,9 +23,11 @@ use crate::command::{self, Completion};
 use crate::config::Config;
 use crate::keymap::{KeyPress, KeyResult, Keymap};
 use crate::player::{self, LoadId, MpvOptions, MpvPlayer, Player, PlayerEvent};
+use crate::themes;
 use crate::ui;
 use crate::ui::layout::PaneSizes;
 use crate::ui::theme::Theme;
+use crate::ui::theme::theme_ids;
 use action::Pane;
 use action::{Action, View};
 use settings::Appearance;
@@ -86,16 +88,34 @@ impl App {
             .clamped(Pane::Library),
         };
         state.config_path_label = display_path(&config_path);
+        let (user_themes, problems) = themes::load_dir(&themes::themes_dir(&config_path));
+        state.user_themes = user_themes;
+        if !problems.is_empty() {
+            state.error(format!("Skipped theme file: {}", problems.join("; ")));
+        }
+        // A theme that was deleted or renamed shouldn't stop Shellify starting.
+        if let Some(name) = state.appearance.theme.preset.clone()
+            && !theme_ids(&state.user_themes).contains(&name)
+        {
+            state.error(format!("Theme {name:?} not found; using the default theme"));
+            state.appearance.theme.preset = None;
+        }
         state.tab_labels = [("view music", "Music"), ("view settings", "Settings")].map(
             |(cmd, name)| match keymap.key_for(cmd) {
                 Some(key) => format!("{key} {name}"),
                 None => name.to_string(),
             },
         );
+        let theme = Theme::from_config(
+            &state.appearance.theme,
+            config.ui.color,
+            config.ui.icons,
+            &state.user_themes,
+        )?;
         Ok(Self {
             state,
             keymap,
-            theme: Theme::from_config(&config.theme, config.ui.color, config.ui.icons)?,
+            theme,
             config_path,
             player: None,
             current_load: None,
@@ -115,7 +135,10 @@ impl App {
             self.mouse_captured = true;
             set_mouse_capture(true);
         }
-        self.state.info("Welcome to Shellify! Press ? for help");
+        // Keep startup warnings (bad theme files...) rather than hiding them.
+        if self.state.status.is_none() {
+            self.state.info("Welcome to Shellify! Press ? for help");
+        }
         self.start_player(tx).await;
         // Clean up however the loop ends, including a draw error.
         let result = self.event_loop(&mut terminal, &mut rx).await;

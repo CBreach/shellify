@@ -5,6 +5,7 @@ use ratatui::style::{Color, Modifier, Style};
 use serde::Deserialize;
 
 use super::icons::{IconPack, Icons};
+use crate::themes::UserTheme;
 
 /// The `[theme]` table in config.toml: an optional preset plus per-color
 /// overrides. Colors are names (`cyan`, `light-blue`), `#rrggbb` or an
@@ -77,6 +78,18 @@ pub struct Theme {
 
 pub const PRESETS: &[&str] = &["default", "nord", "gruvbox", "catppuccin"];
 
+/// Every selectable theme id: the built-in presets, then custom themes. A
+/// custom theme with a built-in's name replaces it rather than appearing twice.
+pub fn theme_ids(user: &[UserTheme]) -> Vec<String> {
+    let mut ids: Vec<String> = PRESETS.iter().map(|s| s.to_string()).collect();
+    for theme in user {
+        if !ids.contains(&theme.id) {
+            ids.push(theme.id.clone());
+        }
+    }
+    ids
+}
+
 impl Theme {
     pub fn preset(name: &str) -> Option<Self> {
         let rgb = |hex: u32| Color::from_u32(hex);
@@ -145,8 +158,37 @@ impl Theme {
         }
     }
 
-    pub fn from_config(config: &ThemeConfig, color: ColorMode, icons: IconPack) -> Result<Self> {
-        let theme = Self::from_theme_config(config)?.with_color_mode(color);
+    /// A theme by id: a custom theme (its `base` preset with its colors on
+    /// top) or a built-in preset.
+    pub fn named(name: &str, user: &[UserTheme]) -> Option<Self> {
+        let Some(custom) = user.iter().find(|t| t.id == name) else {
+            return Self::preset(name);
+        };
+        let f = &custom.file;
+        let mut theme = Self::preset(f.base.as_deref().unwrap_or("default"))?;
+        let colors = [
+            (&f.accent, &mut theme.accent),
+            (&f.text, &mut theme.text),
+            (&f.muted, &mut theme.muted),
+            (&f.error, &mut theme.error),
+            (&f.selection_fg, &mut theme.selection_fg),
+        ];
+        for (value, slot) in colors {
+            // Theme files are validated when loaded, so this can't fail.
+            if let Some(color) = value.as_deref().and_then(|v: &str| parse_color(v).ok()) {
+                *slot = color;
+            }
+        }
+        Some(theme)
+    }
+
+    pub fn from_config(
+        config: &ThemeConfig,
+        color: ColorMode,
+        icons: IconPack,
+        user: &[UserTheme],
+    ) -> Result<Self> {
+        let theme = Self::from_theme_config(config, user)?.with_color_mode(color);
         Ok(Self {
             icons: icons.icons(),
             ..theme
@@ -161,12 +203,12 @@ impl Theme {
         }
     }
 
-    fn from_theme_config(config: &ThemeConfig) -> Result<Self> {
+    fn from_theme_config(config: &ThemeConfig, user: &[UserTheme]) -> Result<Self> {
         let name = config.preset.as_deref().unwrap_or("default");
-        let mut theme = Self::preset(name).ok_or_else(|| {
+        let mut theme = Self::named(name, user).ok_or_else(|| {
             anyhow!(
                 "theme: unknown preset {name:?} (available: {})",
-                PRESETS.join(", ")
+                theme_ids(user).join(", ")
             )
         })?;
         let overrides = [
@@ -219,7 +261,7 @@ mod tests {
     #[test]
     fn empty_config_is_default_theme() {
         assert_eq!(
-            Theme::from_theme_config(&ThemeConfig::default()).unwrap(),
+            Theme::from_theme_config(&ThemeConfig::default(), &[]).unwrap(),
             Theme::default()
         );
     }
@@ -233,7 +275,7 @@ mod tests {
 
     #[test]
     fn overrides_apply_on_top_of_preset() {
-        let theme = Theme::from_theme_config(&config(Some("nord"), Some("#ff8800"))).unwrap();
+        let theme = Theme::from_theme_config(&config(Some("nord"), Some("#ff8800")), &[]).unwrap();
         assert_eq!(theme.accent, Color::Rgb(0xff, 0x88, 0x00));
         assert_eq!(theme.error, Theme::preset("nord").unwrap().error);
     }
@@ -256,6 +298,50 @@ mod tests {
         assert_eq!(Theme::default().selection().bg, Some(Color::Cyan));
     }
 
+    fn custom(id: &str, base: Option<&str>, accent: Option<&str>) -> UserTheme {
+        UserTheme {
+            id: id.into(),
+            name: id.into(),
+            file: crate::themes::ThemeFile {
+                base: base.map(Into::into),
+                accent: accent.map(Into::into),
+                ..Default::default()
+            },
+            path: "/tmp/x.toml".into(),
+        }
+    }
+
+    #[test]
+    fn custom_themes_inherit_their_base_and_can_shadow_builtins() {
+        let user = [
+            custom("ocean", Some("gruvbox"), Some("#123456")),
+            custom("nord", None, Some("#abcdef")),
+        ];
+        let ocean = Theme::named("ocean", &user).unwrap();
+        assert_eq!(ocean.accent, Color::Rgb(0x12, 0x34, 0x56));
+        assert_eq!(ocean.error, Theme::preset("gruvbox").unwrap().error);
+
+        let nord = Theme::named("nord", &user).unwrap();
+        assert_eq!(nord.accent, Color::Rgb(0xab, 0xcd, 0xef), "custom wins");
+        assert_eq!(nord.error, Theme::default().error, "no base means default");
+
+        assert_eq!(
+            theme_ids(&user),
+            ["default", "nord", "gruvbox", "catppuccin", "ocean"],
+            "a shadowing theme isn't listed twice"
+        );
+
+        // Config overrides still apply on top of a custom theme.
+        let config = ThemeConfig {
+            preset: Some("ocean".into()),
+            error: Some("red".into()),
+            ..Default::default()
+        };
+        let theme = Theme::from_theme_config(&config, &user).unwrap();
+        assert_eq!(theme.accent, Color::Rgb(0x12, 0x34, 0x56));
+        assert_eq!(theme.error, Color::Red);
+    }
+
     #[test]
     fn color_formats() {
         assert_eq!(parse_color("Light_Blue").unwrap(), Color::LightBlue);
@@ -265,8 +351,8 @@ mod tests {
 
     #[test]
     fn bad_values_name_the_key() {
-        let err = Theme::from_theme_config(&config(None, Some("blurple"))).unwrap_err();
+        let err = Theme::from_theme_config(&config(None, Some("blurple")), &[]).unwrap_err();
         assert!(err.to_string().contains("theme.accent"));
-        assert!(Theme::from_theme_config(&config(Some("vaporwave"), None)).is_err());
+        assert!(Theme::from_theme_config(&config(Some("vaporwave"), None), &[]).is_err());
     }
 }

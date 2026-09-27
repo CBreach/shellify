@@ -11,6 +11,8 @@ pub enum Action {
     View(View),
     /// Change a side pane's width (percent of the window).
     Resize(Resize),
+    /// Switch, import or reload color themes.
+    Theme(ThemeCommand),
 
     // Playback
     TogglePause,
@@ -88,6 +90,17 @@ pub enum Focus {
     Next,
     Prev,
     Pane(Pane),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThemeCommand {
+    /// Switch to a built-in or custom theme by id.
+    Use(String),
+    /// Validate a theme file (Shellify `.toml` or base16 `.yaml`), copy it
+    /// into the themes folder and switch to it.
+    Import(String),
+    /// Re-read the themes folder (after editing or adding files by hand).
+    Reload,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

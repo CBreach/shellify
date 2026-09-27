@@ -3,7 +3,7 @@
 
 use crate::ui::icons::IconPack;
 use crate::ui::layout::PaneSizes;
-use crate::ui::theme::{ColorMode, PRESETS, ThemeConfig};
+use crate::ui::theme::{ColorMode, ThemeConfig};
 
 /// Everything the Settings tab edits. Mirrors `[theme]` and `[ui]` in config.toml.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -131,12 +131,24 @@ impl Appearance {
         }
     }
 
-    /// Moves a row's value forward (`delta > 0`) or back through its options.
+    /// Moves a row's value forward (`delta > 0`) or back through its
+    /// options, cycling themes through the built-in presets only.
+    #[cfg(test)]
     pub fn step(&mut self, row: SettingRow, delta: i32) {
+        let builtins: Vec<String> = crate::ui::theme::PRESETS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        self.step_in(row, delta, &builtins);
+    }
+
+    /// Like `step`, cycling themes through `themes` (built-ins + custom).
+    pub fn step_in(&mut self, row: SettingRow, delta: i32, themes: &[String]) {
         match row {
             SettingRow::Preset => {
                 let current = self.theme.preset.as_deref().unwrap_or("default");
-                let next = cycle(PRESETS, &current, delta);
+                let ids: Vec<&str> = themes.iter().map(String::as_str).collect();
+                let next = cycle(&ids, &current, delta);
                 // "default" is the implicit preset; keep the config minimal.
                 self.theme.preset = (next != "default").then(|| next.to_string());
             }
