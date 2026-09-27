@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use crate::app::action::{Action, Focus, Pane, RepeatMode, Resize, Seek, Select, View, Volume};
+use crate::app::action::{
+    Action, Focus, Pane, RepeatMode, Resize, Seek, Select, ThemeCommand, View, Volume,
+};
 
 pub struct CommandInfo {
     pub name: &'static str,
@@ -52,6 +54,11 @@ pub const COMMANDS: &[CommandInfo] = &[
     cmd("select", "select <+N|-N|top|bottom>", "Move the selection"),
     cmd("settings", "settings", "Open the Settings tab"),
     cmd("shuffle", "shuffle", "Shuffle upcoming tracks"),
+    cmd(
+        "theme",
+        "theme <name>, theme import <file>, theme reload",
+        "Switch, import (.toml or base16 .yaml) or reload themes",
+    ),
     cmd("view", "view <music|settings>", "Switch tab"),
     cmd(
         "volume",
@@ -86,6 +93,7 @@ pub fn parse(input: &str) -> Result<Action, String> {
         "help" => no_arg(Action::Help),
         "settings" => no_arg(Action::View(View::Settings)),
         "resize" => parse_resize(arg).map(Action::Resize),
+        "theme" => parse_theme(arg).map(Action::Theme),
         "view" => match arg {
             "music" => Ok(Action::View(View::Music)),
             "settings" => Ok(Action::View(View::Settings)),
@@ -151,6 +159,20 @@ fn parse_volume(arg: &str) -> Result<Volume, String> {
             Ok(v) if v <= 100 => Ok(Volume::Set(v)),
             _ => Err(err()),
         }
+    }
+}
+
+fn parse_theme(arg: &str) -> Result<ThemeCommand, String> {
+    match arg.split_once(char::is_whitespace) {
+        Some(("import", path)) if !path.trim().is_empty() => {
+            Ok(ThemeCommand::Import(path.trim().to_string()))
+        }
+        _ if arg == "import" => Err("theme import: expected a file path".into()),
+        _ if arg == "reload" => Ok(ThemeCommand::Reload),
+        _ if arg.is_empty() || arg.contains(char::is_whitespace) => {
+            Err("theme: expected a theme name, `import <file>` or `reload`".into())
+        }
+        _ => Ok(ThemeCommand::Use(arg.to_lowercase())),
     }
 }
 
@@ -281,6 +303,22 @@ mod tests {
         );
         assert_eq!(parse("settings"), Ok(Action::View(View::Settings)));
         assert_eq!(parse("resize reset"), Ok(Action::Resize(Resize::Reset)));
+        assert_eq!(
+            parse("theme Nord"),
+            Ok(Action::Theme(ThemeCommand::Use("nord".into())))
+        );
+        assert_eq!(
+            parse("theme import ~/Downloads/tokyo night.yaml"),
+            Ok(Action::Theme(ThemeCommand::Import(
+                "~/Downloads/tokyo night.yaml".into()
+            )))
+        );
+        assert_eq!(
+            parse("theme reload"),
+            Ok(Action::Theme(ThemeCommand::Reload))
+        );
+        assert!(parse("theme").is_err());
+        assert!(parse("theme import").is_err());
         assert_eq!(
             parse("resize library 30"),
             Ok(Action::Resize(Resize::Set(Pane::Library, 30)))

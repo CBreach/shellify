@@ -9,6 +9,7 @@ use crate::app::settings::{Appearance, SettingRow};
 use crate::command::LineEditor;
 use crate::keymap::HelpEntry;
 use crate::provider::{Playlist, Track};
+use crate::themes::UserTheme;
 use crate::ui::layout::PaneSizes;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,6 +157,8 @@ pub struct AppState {
     pub tab_labels: [String; 2],
 
     pub hits: HitMap,
+    /// Custom themes from `themes/` next to the config.
+    pub user_themes: Vec<UserTheme>,
     /// The pane border under the mouse pointer, highlighted as draggable.
     pub divider_hover: Option<Pane>,
     /// The pane border being dragged right now.
@@ -201,6 +204,7 @@ impl AppState {
             config_path_label: String::new(),
             tab_labels: ["Music".into(), "Settings".into()],
             hits: HitMap::default(),
+            user_themes: Vec::new(),
             divider_hover: None,
             divider_drag: None,
         }

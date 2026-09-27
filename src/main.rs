@@ -4,6 +4,7 @@ mod config;
 mod keymap;
 mod player;
 mod provider;
+mod themes;
 mod ui;
 
 use std::path::PathBuf;

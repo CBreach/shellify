@@ -3,15 +3,16 @@ use std::time::Duration;
 
 use directories::BaseDirs;
 
-use super::action::{Action, Focus, Pane, Resize, Seek, Select, View, Volume};
+use super::action::{Action, Focus, Pane, Resize, Seek, Select, ThemeCommand, View, Volume};
 use super::settings::SettingRow;
 use super::state::{Mode, StatusLevel};
 use super::{App, demo, set_mouse_capture};
 use crate::config;
 use crate::player::{EndReason, PlayerEvent};
 use crate::provider::Track;
+use crate::themes;
 use crate::ui::layout::PaneSizes;
-use crate::ui::theme::{Theme, parse_color};
+use crate::ui::theme::{Theme, parse_color, theme_ids};
 
 /// Consecutive playback failures after which we stop instead of skipping on.
 const MAX_FAILURES: usize = 3;
@@ -52,6 +53,7 @@ impl App {
             }
             Action::View(view) => self.state.view = view,
             Action::Resize(resize) => self.resize(resize),
+            Action::Theme(command) => self.theme_command(command),
 
             Action::TogglePause => {
                 if self.state.queue.current().is_some() {
@@ -174,7 +176,8 @@ impl App {
     fn step_setting(&mut self, delta: i32) {
         let row = self.state.selected_setting();
         if row != SettingRow::Reset {
-            self.state.appearance.step(row, delta);
+            let themes = theme_ids(&self.state.user_themes);
+            self.state.appearance.step_in(row, delta, &themes);
             self.apply_appearance();
         }
     }
@@ -220,6 +223,88 @@ impl App {
         self.apply_appearance();
     }
 
+    /// `:theme <name>`, `:theme import <file>`, `:theme reload`.
+    fn theme_command(&mut self, command: ThemeCommand) {
+        match command {
+            ThemeCommand::Use(id) => {
+                let ids = theme_ids(&self.state.user_themes);
+                if !ids.contains(&id) {
+                    self.state.error(format!(
+                        "unknown theme {id:?} (available: {})",
+                        ids.join(", ")
+                    ));
+                    return;
+                }
+                // "default" is the implicit preset; keep the config minimal.
+                self.state.appearance.theme.preset = (id != "default").then(|| id.clone());
+                self.apply_appearance();
+                if !self.status_is_error() {
+                    self.state.info(format!("Theme: {}", self.theme_label(&id)));
+                }
+            }
+            ThemeCommand::Import(path) => {
+                let dir = themes::themes_dir(&self.config_path);
+                match themes::import(&expand_home(&path), &dir) {
+                    Ok(id) => {
+                        self.reload_themes();
+                        self.theme_command(ThemeCommand::Use(id.clone()));
+                        if !self.status_is_error() {
+                            let label = self.theme_label(&id);
+                            self.state
+                                .info(format!("Imported {label} and switched to it"));
+                        }
+                    }
+                    Err(e) => self.state.error(format!("theme import: {e:#}")),
+                }
+            }
+            ThemeCommand::Reload => {
+                let problems = self.reload_themes();
+                if problems.is_empty() {
+                    let n = self.state.user_themes.len();
+                    self.state.info(format!("Reloaded themes: {n} custom"));
+                } else {
+                    self.state
+                        .error(format!("Skipped theme file: {}", problems.join("; ")));
+                }
+            }
+        }
+    }
+
+    /// Re-reads the themes folder and re-applies the current theme (its file
+    /// may have been edited). Falls back to the default if it disappeared.
+    /// Returns the files that couldn't be loaded.
+    fn reload_themes(&mut self) -> Vec<String> {
+        let (themes, problems) = themes::load_dir(&themes::themes_dir(&self.config_path));
+        self.state.user_themes = themes;
+        let current = &mut self.state.appearance.theme.preset;
+        if current
+            .as_ref()
+            .is_some_and(|id| !theme_ids(&self.state.user_themes).contains(id))
+        {
+            *current = None;
+        }
+        let a = &self.state.appearance;
+        if let Ok(theme) = Theme::from_config(&a.theme, a.color, a.icons, &self.state.user_themes) {
+            self.theme = theme;
+        }
+        problems
+    }
+
+    /// "Tokyo Night (custom)" for custom themes, the id for built-ins.
+    fn theme_label(&self, id: &str) -> String {
+        match self.state.user_themes.iter().find(|t| t.id == id) {
+            Some(t) => format!("{} (custom)", t.name),
+            None => id.to_string(),
+        }
+    }
+
+    fn status_is_error(&self) -> bool {
+        self.state
+            .status
+            .as_ref()
+            .is_some_and(|s| s.level == StatusLevel::Error)
+    }
+
     /// `:resize`: change a side pane's width and save it.
     fn resize(&mut self, resize: Resize) {
         let panes = self.state.appearance.panes;
@@ -257,7 +342,7 @@ impl App {
     /// Rebuilds the live theme from the Settings values and saves them.
     fn apply_appearance(&mut self) {
         let a = &self.state.appearance;
-        match Theme::from_config(&a.theme, a.color, a.icons) {
+        match Theme::from_config(&a.theme, a.color, a.icons, &self.state.user_themes) {
             Ok(theme) => self.theme = theme,
             Err(e) => {
                 self.state.error(e.to_string());
@@ -481,6 +566,14 @@ impl App {
     }
 }
 
+/// Expands a leading `~/` (typed paths in `:theme import`).
+fn expand_home(path: &str) -> std::path::PathBuf {
+    match (path.strip_prefix("~/"), BaseDirs::new()) {
+        (Some(rest), Some(dirs)) => dirs.home_dir().join(rest),
+        _ => std::path::PathBuf::from(path),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -655,5 +748,137 @@ mod tests {
         play_liked(&mut app);
         let status = app.state.status.as_ref().unwrap();
         assert!(status.text.contains("mpv is not running"));
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use std::path::{Path, PathBuf};
+
+    use ratatui::style::Color;
+
+    use super::*;
+    use crate::config::Config;
+
+    const OCEAN_YAML: &str = "scheme: \"Ocean Breeze\"\nbase00: \"101820\"\nbase03: \"4a5a6a\"\nbase05: \"d0e0f0\"\nbase08: \"ff6060\"\nbase0D: \"33aaff\"\n";
+
+    fn app_at(config_path: &Path) -> App {
+        let config = Config::load(config_path).unwrap();
+        App::new(&config, config_path.to_path_buf()).unwrap()
+    }
+
+    fn setup() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        (dir, config)
+    }
+
+    #[test]
+    fn importing_a_base16_scheme_switches_to_it_and_saves() {
+        let (dir, config) = setup();
+        let yaml = dir.path().join("ocean.yaml");
+        std::fs::write(&yaml, OCEAN_YAML).unwrap();
+        let mut app = app_at(&config);
+
+        app.dispatch(Action::Theme(ThemeCommand::Import(
+            yaml.display().to_string(),
+        )));
+
+        assert_eq!(app.theme.accent, Color::Rgb(0x33, 0xaa, 0xff));
+        assert_eq!(
+            app.state.appearance.theme.preset.as_deref(),
+            Some("ocean-breeze")
+        );
+        let status = app.state.status.as_ref().unwrap();
+        assert!(
+            status.text.contains("Imported Ocean Breeze (custom)"),
+            "{}",
+            status.text
+        );
+        assert!(dir.path().join("themes/ocean-breeze.toml").exists());
+        let saved = std::fs::read_to_string(&config).unwrap();
+        assert!(saved.contains("preset = \"ocean-breeze\""), "{saved}");
+
+        // A fresh start picks the custom theme back up from config + themes/.
+        let restarted = app_at(&config);
+        assert_eq!(restarted.theme.accent, Color::Rgb(0x33, 0xaa, 0xff));
+    }
+
+    #[test]
+    fn unknown_theme_is_rejected_and_nothing_changes() {
+        let (_dir, config) = setup();
+        let mut app = app_at(&config);
+        app.dispatch(Action::Theme(ThemeCommand::Use("vaporwave".into())));
+        assert_eq!(app.state.status.as_ref().unwrap().level, StatusLevel::Error);
+        assert_eq!(app.state.appearance.theme.preset, None);
+        assert!(!config.exists());
+    }
+
+    #[test]
+    fn a_deleted_theme_falls_back_to_default_on_reload_and_restart() {
+        let (dir, config) = setup();
+        let themes = dir.path().join("themes");
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(themes.join("mine.toml"), "accent = \"#010203\"\n").unwrap();
+        std::fs::write(&config, "[theme]\npreset = \"mine\"\n").unwrap();
+
+        let mut app = app_at(&config);
+        assert_eq!(app.theme.accent, Color::Rgb(1, 2, 3));
+
+        std::fs::remove_file(themes.join("mine.toml")).unwrap();
+        app.dispatch(Action::Theme(ThemeCommand::Reload));
+        assert_eq!(app.state.appearance.theme.preset, None);
+        assert_eq!(app.theme.accent, Theme::default().accent);
+
+        // Starting with a config that names a missing theme still works.
+        let restarted = app_at(&config);
+        assert_eq!(restarted.theme.accent, Theme::default().accent);
+        assert!(
+            restarted
+                .state
+                .status
+                .as_ref()
+                .unwrap()
+                .text
+                .contains("not found")
+        );
+    }
+
+    #[test]
+    fn broken_theme_files_warn_but_dont_block_startup() {
+        let (dir, config) = setup();
+        let themes = dir.path().join("themes");
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(themes.join("oops.toml"), "accent = \"blurple\"\n").unwrap();
+        std::fs::write(themes.join("fine.toml"), "text = \"white\"\n").unwrap();
+
+        let app = app_at(&config);
+        let ids: Vec<_> = app
+            .state
+            .user_themes
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect();
+        assert_eq!(ids, ["fine"]);
+        let status = app.state.status.as_ref().unwrap();
+        assert_eq!(status.level, StatusLevel::Error);
+        assert!(status.text.contains("oops.toml"), "{}", status.text);
+    }
+
+    #[test]
+    fn settings_cycles_through_custom_themes() {
+        let (dir, config) = setup();
+        let themes = dir.path().join("themes");
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(themes.join("zebra.toml"), "accent = \"white\"\n").unwrap();
+        let mut app = app_at(&config);
+        app.state.view = View::Settings;
+        app.state.settings_cursor = 0; // Theme row
+        // default -> nord -> gruvbox -> catppuccin -> zebra
+        for _ in 0..4 {
+            app.dispatch(Action::Focus(Focus::Next));
+        }
+        assert_eq!(app.state.appearance.theme.preset.as_deref(), Some("zebra"));
+        assert_eq!(app.theme.accent, Color::White);
     }
 }

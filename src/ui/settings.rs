@@ -61,6 +61,10 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) -> V
         muted,
     ));
     lines.push(Line::styled(
+        " Add your own theme: :theme import <file> (a Shellify .toml or a base16 .yaml).",
+        muted,
+    ));
+    lines.push(Line::styled(
         format!(" Changes save automatically to {}", state.config_path_label),
         muted,
     ));
@@ -118,6 +122,18 @@ fn preview(state: &AppState, theme: &Theme, row: SettingRow, muted: Style) -> Ve
     let swatch = |color: Color| vec![Span::styled(theme.icons.swatch, Style::new().fg(color))];
     let icons = theme.icons;
     match row {
+        SettingRow::Preset => {
+            let id = state
+                .appearance
+                .theme
+                .preset
+                .as_deref()
+                .unwrap_or("default");
+            match state.user_themes.iter().find(|t| t.id == id) {
+                Some(custom) => vec![Span::styled(format!("custom: {}", custom.name), muted)],
+                None => Vec::new(),
+            }
+        }
         SettingRow::Accent => swatch(theme.accent),
         SettingRow::Text => swatch(theme.text),
         SettingRow::Muted => swatch(theme.muted),

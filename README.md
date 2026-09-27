@@ -81,6 +81,7 @@ Press `:` then type a command. Tab completes command names, and ↑/↓ browse h
 | `:help` | Show the help overlay |
 | `:settings`, `:view <music\|settings>` | Switch tab |
 | `:resize library 30`, `:resize queue +5`, `:resize reset` | Set a side pane's width (% of the window) |
+| `:theme <name>`, `:theme import <file>`, `:theme reload` | Switch, import or reload color themes |
 | `:q` | Quit |
 
 ## Configuration
@@ -111,6 +112,39 @@ accent = "#f5c2e7"      # focused borders, selection, progress bar
 # error = "red"
 # selection_fg = "black"  # text drawn on the accent color
 ```
+
+### Custom themes
+
+You can add your own themes alongside the built-in ones. Each theme is a small TOML file in `~/.config/shellify/themes/`, named after the theme:
+
+```toml
+# ~/.config/shellify/themes/tokyo-night.toml
+name = "Tokyo Night"      # optional display name
+base = "nord"             # optional: start from a built-in theme
+accent = "#7aa2f7"        # any color you leave out comes from `base`
+text = "#c0caf5"
+muted = "#565f89"
+error = "#f7768e"
+selection_fg = "#1a1b26"
+```
+
+Use `:theme tokyo-night`, or pick it in **Settings → Theme**, where custom themes appear after the built-in ones.
+
+**Importing** is the easiest way in:
+
+```
+:theme import ~/Downloads/tokyo-night.yaml
+```
+
+`:theme import` accepts a Shellify `.toml` theme or a **base16 scheme** (`.yaml`), the format most popular terminal themes are published in (see [tinted-theming/schemes](https://github.com/tinted-theming/schemes)). Shellify checks the file, converts it, saves it to your themes folder and switches to it. It never overwrites an existing theme. The base16 roles map as follows:
+
+- `base0D` (blue) → accent
+- `base05` → text
+- `base03` → muted
+- `base08` (red) → error
+- `base00` → selection text
+
+After editing or adding theme files by hand, run `:theme reload`. A file with a mistake in it is skipped with a message rather than stopping Shellify from starting. If your config names a theme that no longer exists, Shellify falls back to the default one.
 
 ### Color
 
