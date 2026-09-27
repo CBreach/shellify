@@ -241,6 +241,10 @@ impl App {
                 a.visualizer_style = style;
                 a.visualizer = true;
             }
+            VizCommand::Fade(on) => {
+                a.visualizer_fade = on.unwrap_or(!a.visualizer_fade);
+                a.visualizer = true;
+            }
         }
         self.apply_appearance();
         if self.status_is_error() {
@@ -248,7 +252,8 @@ impl App {
         }
         let a = &self.state.appearance;
         let msg = if a.visualizer {
-            format!("Visualizer on: {}", a.visualizer_style.label())
+            let fade = if a.visualizer_fade { ", fading" } else { "" };
+            format!("Visualizer on: {}{fade}", a.visualizer_style.label())
         } else {
             "Visualizer off".to_string()
         };

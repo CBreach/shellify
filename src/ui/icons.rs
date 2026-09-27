@@ -66,6 +66,8 @@ pub struct Icons {
     pub viz_peak: &'static str,
     /// Visualizer dot/line mark when braille can't be used.
     pub viz_mark: &'static str,
+    /// Fading visualizer cells, faintest first.
+    pub viz_shade: [&'static str; 3],
     /// Whether braille dots (smooth wave and dots styles) can be used.
     pub braille: bool,
     pub border: border::Set<'static>,
@@ -92,6 +94,7 @@ const UNICODE: Icons = Icons {
     viz_half: ["▀", "▄"],
     viz_peak: "▔",
     viz_mark: "•",
+    viz_shade: ["░", "▒", "▓"],
     braille: true,
     border: border::ROUNDED,
     border_focus: border::THICK,
@@ -127,6 +130,7 @@ const ASCII: Icons = Icons {
     viz_half: ["\"", "."],
     viz_peak: "-",
     viz_mark: "*",
+    viz_shade: [".", ":", "+"],
     braille: false,
     border: ASCII_BORDER,
     border_focus: border::Set {
@@ -188,7 +192,7 @@ mod tests {
             focus.horizontal_top,
             focus.vertical_left,
         ];
-        for glyph in all.into_iter().chain(i.viz_ramp) {
+        for glyph in all.into_iter().chain(i.viz_ramp).chain(i.viz_shade) {
             assert!(glyph.is_ascii(), "{glyph:?}");
         }
     }

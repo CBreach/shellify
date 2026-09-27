@@ -87,6 +87,7 @@ impl App {
             resize_cursor: config.ui.resize_cursor,
             visualizer: config.ui.visualizer,
             visualizer_style: config.ui.visualizer_style,
+            visualizer_fade: config.ui.visualizer_fade,
             panes: PaneSizes {
                 library: config
                     .ui

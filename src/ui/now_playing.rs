@@ -35,6 +35,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) -> O
             viz,
             &state.visualizer,
             state.appearance.visualizer_style,
+            state.appearance.visualizer_fade,
             theme,
         );
         rest

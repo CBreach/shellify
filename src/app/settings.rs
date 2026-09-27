@@ -20,6 +20,8 @@ pub struct Appearance {
     /// Show the audio visualizer in Now Playing.
     pub visualizer: bool,
     pub visualizer_style: VizStyle,
+    /// Bars fade in and out, leaving a trail.
+    pub visualizer_fade: bool,
     /// Side pane widths, set by dragging pane borders or `:resize`.
     pub panes: PaneSizes,
 }
@@ -36,6 +38,7 @@ pub enum SettingRow {
     Color,
     Visualizer,
     VisualizerStyle,
+    VisualizerFade,
     Mouse,
     ResizeCursor,
     Reset,
@@ -62,7 +65,7 @@ pub const NAMED_COLORS: &[&str] = &[
 ];
 
 impl SettingRow {
-    pub const ALL: [SettingRow; 13] = [
+    pub const ALL: [SettingRow; 14] = [
         SettingRow::Preset,
         SettingRow::Accent,
         SettingRow::Text,
@@ -73,6 +76,7 @@ impl SettingRow {
         SettingRow::Color,
         SettingRow::Visualizer,
         SettingRow::VisualizerStyle,
+        SettingRow::VisualizerFade,
         SettingRow::Mouse,
         SettingRow::ResizeCursor,
         SettingRow::Reset,
@@ -90,6 +94,7 @@ impl SettingRow {
             Self::Color => "Color",
             Self::Visualizer => "Visualizer",
             Self::VisualizerStyle => "Style",
+            Self::VisualizerFade => "Fade",
             Self::Mouse => "Mouse",
             Self::ResizeCursor => "Resize cursor",
             Self::Reset => "Reset all settings to defaults",
@@ -138,6 +143,7 @@ impl Appearance {
             SettingRow::Mouse => if self.mouse { "on" } else { "off" }.into(),
             SettingRow::Visualizer => if self.visualizer { "on" } else { "off" }.into(),
             SettingRow::VisualizerStyle => self.visualizer_style.label().into(),
+            SettingRow::VisualizerFade => if self.visualizer_fade { "on" } else { "off" }.into(),
             SettingRow::ResizeCursor => if self.resize_cursor { "on" } else { "off" }.into(),
             SettingRow::Reset => String::new(),
         }
@@ -170,6 +176,7 @@ impl Appearance {
             SettingRow::VisualizerStyle => {
                 self.visualizer_style = cycle(&VizStyle::ALL, &self.visualizer_style, delta)
             }
+            SettingRow::VisualizerFade => self.visualizer_fade = !self.visualizer_fade,
             SettingRow::Mouse => self.mouse = !self.mouse,
             SettingRow::ResizeCursor => self.resize_cursor = !self.resize_cursor,
             SettingRow::Reset => {}
@@ -247,6 +254,9 @@ mod tests {
         a.step(SettingRow::VisualizerStyle, -1);
         assert_eq!(a.visualizer_style, VizStyle::Dots);
         assert_eq!(a.value_label(SettingRow::VisualizerStyle), "dots");
+        a.step(SettingRow::VisualizerFade, 1);
+        assert!(a.visualizer_fade);
+        assert_eq!(a.value_label(SettingRow::VisualizerFade), "on");
         a.step(SettingRow::ResizeCursor, 1);
         assert!(a.resize_cursor);
         assert_eq!(a.value_label(SettingRow::ResizeCursor), "on");

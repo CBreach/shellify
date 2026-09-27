@@ -104,6 +104,8 @@ pub enum VizCommand {
     /// Next style (turns it on if it was off).
     NextStyle,
     Style(VizStyle),
+    /// Turn fading on or off, or toggle it (`None`).
+    Fade(Option<bool>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -27,6 +27,12 @@ const PEAK_GRAVITY: f32 = 2.5;
 /// Without meter data for this long, fall back to the gentle idle motion.
 const STALE_AFTER: f32 = 1.0;
 const IDLE_LEVEL: f32 = 0.18;
+/// Vertical resolution of the fade (glow) grid.
+pub const LEVELS: usize = 16;
+/// Seconds for a newly lit part of a bar to fade in, and for a part the bar
+/// has dropped below to fade out.
+const FADE_IN: f32 = 0.10;
+const FADE_OUT: f32 = 0.55;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -74,6 +80,10 @@ pub struct Visualizer {
     pub peaks: [f32; BANDS],
     /// Advances with time and loudness; drives the wave and dots motion.
     pub phase: f32,
+    /// How lit each height slice of each band is, 0..1 (low slices first):
+    /// it eases up when the bar reaches that height and fades out slowly
+    /// after the bar drops below it. Drawn when the fade option is on.
+    pub glow: [[f32; LEVELS]; BANDS],
     /// Loudness from the latest meter reading.
     target: f32,
     /// A burst on sudden peaks (drum hits), decaying quickly.
@@ -94,6 +104,7 @@ impl Default for Visualizer {
             bands: [0.0; BANDS],
             peaks: [0.0; BANDS],
             phase: 0.0,
+            glow: [[0.0; LEVELS]; BANDS],
             target: 0.0,
             kick: 0.0,
             weights: [0.5; BANDS],
@@ -136,6 +147,8 @@ impl Visualizer {
         self.level = approach(self.level, target, dt);
         self.kick *= (-dt / 0.12).exp();
         self.phase += dt * (1.0 + 3.0 * self.level);
+        let fade_in = 1.0 - (-dt / FADE_IN).exp();
+        let fade_out = (-dt / FADE_OUT).exp();
 
         for i in 0..BANDS {
             // Random walk, pulled back towards the middle.
@@ -167,12 +180,23 @@ impl Visualizer {
                     self.peaks[i] = (self.peaks[i] - self.peak_speed[i] * dt).max(self.bands[i]);
                 }
             }
+
+            for (level, glow) in self.glow[i].iter_mut().enumerate() {
+                let height = (level as f32 + 0.5) / LEVELS as f32;
+                if self.bands[i] >= height {
+                    *glow += (1.0 - *glow) * fade_in;
+                } else {
+                    *glow *= fade_out;
+                }
+            }
         }
     }
 
     /// Nothing is moving any more, so the animation clock can stop.
     pub fn at_rest(&self) -> bool {
-        self.level < 0.005 && self.peaks.iter().all(|&p| p < 0.005)
+        self.level < 0.005
+            && self.peaks.iter().all(|&p| p < 0.005)
+            && self.glow.iter().flatten().all(|&g| g < 0.01)
     }
 
     /// Band `i` of `n`, resampled from the model's bands (averaging).
@@ -183,6 +207,19 @@ impl Visualizer {
         let start = i * BANDS / n;
         let end = ((i + 1) * BANDS / n).max(start + 1).min(BANDS);
         values[start..end].iter().sum::<f32>() / (end - start) as f32
+    }
+
+    /// How lit column `i` of `n` is at `height` (0..1), averaged over the
+    /// bands the column covers.
+    pub fn glow_at(&self, i: usize, n: usize, height: f32) -> f32 {
+        if n == 0 {
+            return 0.0;
+        }
+        let level = ((height * LEVELS as f32) as usize).min(LEVELS - 1);
+        let start = i * BANDS / n;
+        let end = ((i + 1) * BANDS / n).max(start + 1).min(BANDS);
+        let sum: f32 = self.glow[start..end].iter().map(|g| g[level]).sum();
+        sum / (end - start) as f32
     }
 
     /// xorshift64*: small, fast, deterministic.
@@ -291,6 +328,28 @@ mod tests {
         let mut v = Visualizer::default();
         run(&mut v, 2.0, true);
         assert!((v.level - IDLE_LEVEL).abs() < 0.02);
+    }
+
+    #[test]
+    fn glow_fades_in_quickly_and_out_slowly() {
+        let mut v = Visualizer::default();
+        v.meter(-10.0, -4.0);
+        v.tick(FRAME, true);
+        let low = v.glow_at(0, 1, 0.1);
+        assert!(low > 0.0 && low < 0.9, "fades in, not instantly: {low}");
+        run(&mut v, 0.5, true);
+        let lit = v.glow_at(0, 1, 0.1);
+        assert!(lit > 0.9, "fully lit while the bar covers it: {lit}");
+
+        // The music stops: bars drop, the glow above them lingers, then goes.
+        run(&mut v, 0.5, false);
+        let trail = (0..LEVELS).any(|l| {
+            let height = (l as f32 + 0.5) / LEVELS as f32;
+            height > v.bands[0] && v.glow[0][l] > 0.2
+        });
+        assert!(trail, "a trail is left above the bar: {:?}", v.glow[0]);
+        run(&mut v, 4.0, false);
+        assert!(v.at_rest(), "and it fades away completely");
     }
 
     #[test]

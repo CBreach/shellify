@@ -32,6 +32,7 @@ pub struct UiConfig {
     pub resize_cursor: bool,
     pub visualizer: bool,
     pub visualizer_style: VizStyle,
+    pub visualizer_fade: bool,
     /// Side pane widths in percent of the window (see `PaneSizes`).
     pub library_width: Option<u16>,
     pub queue_width: Option<u16>,
@@ -105,6 +106,10 @@ pub fn save_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
                 .then(|| appearance.visualizer_style.label().into()),
         ),
         (
+            "visualizer_fade",
+            appearance.visualizer_fade.then(|| true.into()),
+        ),
+        (
             "library_width",
             (panes.library != default_panes.library).then(|| i64::from(panes.library).into()),
         ),
@@ -168,6 +173,7 @@ mod tests {
             resize_cursor: true,
             visualizer: true,
             visualizer_style: VizStyle::Wave,
+            visualizer_fade: true,
             panes: PaneSizes {
                 library: 30,
                 queue: 28,
@@ -198,6 +204,8 @@ mod tests {
         assert!(loaded.ui.visualizer);
         assert_eq!(loaded.ui.visualizer_style, VizStyle::Wave);
         assert!(saved.contains("visualizer_style = \"wave\""), "{saved}");
+        assert!(saved.contains("visualizer_fade = true"), "{saved}");
+        assert!(loaded.ui.visualizer_fade);
         assert!(saved.contains("library_width = 30"), "{saved}");
         assert!(
             !saved.contains("queue_width"),

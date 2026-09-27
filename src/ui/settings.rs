@@ -162,6 +162,10 @@ fn preview(state: &AppState, theme: &Theme, row: SettingRow, muted: Style) -> Ve
         SettingRow::VisualizerStyle => {
             vec![Span::styled("bars, mirror, wave or dots (V cycles)", muted)]
         }
+        SettingRow::VisualizerFade => vec![Span::styled(
+            "bars fade in and out, leaving a trail (:viz fade)",
+            muted,
+        )],
         SettingRow::ResizeCursor if !state.appearance.mouse => {
             vec![Span::styled("(needs Mouse on)", muted)]
         }

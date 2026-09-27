@@ -63,8 +63,8 @@ pub const COMMANDS: &[CommandInfo] = &[
     cmd("view", "view <music|settings>", "Switch tab"),
     cmd(
         "visualizer",
-        "visualizer [on|off|next|bars|mirror|wave|dots]",
-        "Toggle the visualizer, or pick its style",
+        "visualizer [on|off|next|bars|mirror|wave|dots], visualizer fade [on|off]",
+        "Toggle the visualizer, pick its style, or toggle fading",
     ),
     cmd(
         "volume",
@@ -175,8 +175,13 @@ fn parse_visualizer(arg: &str) -> Result<VizCommand, String> {
         "on" => Ok(VizCommand::On),
         "off" => Ok(VizCommand::Off),
         "next" => Ok(VizCommand::NextStyle),
+        "fade" => Ok(VizCommand::Fade(None)),
+        "fade on" => Ok(VizCommand::Fade(Some(true))),
+        "fade off" => Ok(VizCommand::Fade(Some(false))),
         _ => VizStyle::parse(arg).map(VizCommand::Style).ok_or_else(|| {
-            format!("visualizer: expected on, off, next, bars, mirror, wave or dots, got {arg:?}")
+            format!(
+                "visualizer: expected on, off, next, fade, bars, mirror, wave or dots, got {arg:?}"
+            )
         }),
     }
 }
@@ -347,6 +352,14 @@ mod tests {
             Ok(Action::Visualizer(VizCommand::Style(VizStyle::Mirror)))
         );
         assert!(parse("visualizer disco").is_err());
+        assert_eq!(
+            parse("viz fade"),
+            Ok(Action::Visualizer(VizCommand::Fade(None)))
+        );
+        assert_eq!(
+            parse("visualizer fade off"),
+            Ok(Action::Visualizer(VizCommand::Fade(Some(false))))
+        );
         assert!(parse("theme import").is_err());
         assert_eq!(
             parse("resize library 30"),

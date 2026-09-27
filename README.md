@@ -84,6 +84,7 @@ Press `:` then type a command. Tab completes command names, and ↑/↓ browse h
 | `:resize library 30`, `:resize queue +5`, `:resize reset` | Set a side pane's width (% of the window) |
 | `:theme <name>`, `:theme import <file>`, `:theme reload` | Switch, import or reload color themes |
 | `:visualizer [on\|off\|next\|bars\|mirror\|wave\|dots]` | Toggle the visualizer or pick its style |
+| `:visualizer fade [on\|off]` | Make the visualizer fade in and out |
 | `:q` | Quit |
 
 ## Configuration
@@ -124,12 +125,15 @@ Press `v` (or `:visualizer`) to show an animated visualizer in the Now Playing p
 - **wave**: an oscilloscope-style line
 - **dots**: bouncing dots with peak markers
 
+Turn on **fade** (`:visualizer fade`) and the bars fade in as they rise and fade out as they fall, leaving a short trail. The wave leaves fading echoes instead, and the dots leave tails. True-color themes fade smoothly. Other themes step through dimmer styles and lighter shade glyphs, which also works without color.
+
 You can also set it in **Settings → Visualizer**, with `:visualizer [on|off|next|bars|mirror|wave|dots]`, or in the config:
 
 ```toml
 [ui]
 visualizer = true
 visualizer_style = "wave"
+visualizer_fade = true
 ```
 
 It reacts to the music you're playing: mpv measures the loudness (with FFmpeg's `astats`, which leaves the audio untouched), so the bars rise and punch with the track. mpv doesn't expose a frequency spectrum, so how that energy spreads across the bars is a smooth animated pattern, not a true spectrum analyzer. Without mpv, it just drifts gently.
