@@ -36,32 +36,58 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
         return;
     };
 
-    let icon = if playback.paused { "⏸ " } else { "▶ " };
-    let title = Line::from(vec![
+    let icon = if playback.loading {
+        format!("{} ", spinner_frame())
+    } else if playback.paused {
+        "⏸ ".to_string()
+    } else {
+        "▶ ".to_string()
+    };
+    let mut spans = vec![
         Span::styled(icon, Style::new().fg(ACCENT)),
         Span::styled(
             track.title.clone(),
             Style::new().add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" — "),
-        Span::raw(track.artist.clone()),
-    ]);
-    frame.render_widget(title, info);
+    ];
+    if !track.artist.is_empty() {
+        spans.push(Span::raw(" — "));
+        spans.push(Span::raw(track.artist.clone()));
+    }
+    frame.render_widget(Line::from(spans), info);
     frame.render_widget(settings, info);
 
-    let ratio = if track.duration.is_zero() {
+    // The player's duration is exact; metadata may be missing or approximate.
+    let duration = playback.duration.unwrap_or(track.duration);
+    let ratio = if duration.is_zero() {
         0.0
     } else {
-        (playback.position.as_secs_f64() / track.duration.as_secs_f64()).clamp(0.0, 1.0)
+        (playback.position.as_secs_f64() / duration.as_secs_f64()).clamp(0.0, 1.0)
+    };
+    let label = if playback.loading {
+        "Loading…".to_string()
+    } else if duration.is_zero() {
+        fmt_duration(playback.position)
+    } else {
+        format!(
+            "{} / {}",
+            fmt_duration(playback.position),
+            fmt_duration(duration)
+        )
     };
     let gauge = LineGauge::default()
         .ratio(ratio)
-        .label(format!(
-            "{} / {}",
-            fmt_duration(playback.position),
-            fmt_duration(track.duration)
-        ))
+        .label(label)
         .filled_style(Style::new().fg(ACCENT))
         .unfilled_style(Style::new().fg(Color::DarkGray));
     frame.render_widget(gauge, progress);
+}
+
+/// Braille spinner driven by the clock; the app redraws on every tick.
+fn spinner_frame() -> char {
+    const FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    FRAMES[(millis / 250 % FRAMES.len() as u128) as usize]
 }

@@ -39,6 +39,12 @@ pub enum EndReason {
     Error(String),
 }
 
+/// Whether an executable called `name` is on `PATH`.
+pub fn on_path(name: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
+}
+
 #[async_trait]
 pub trait Player: Send {
     /// Replaces whatever is playing with `source` (URL or file path) and
@@ -51,4 +57,13 @@ pub trait Player: Send {
     fn stop(&mut self);
     /// Stops the backend and cleans up after it.
     async fn shutdown(&mut self);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn on_path_finds_executables() {
+        assert!(super::on_path("sh"));
+        assert!(!super::on_path("shellify-no-such-binary"));
+    }
 }
