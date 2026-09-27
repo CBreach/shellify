@@ -26,7 +26,9 @@ Shellify is a public, open-source project meant for anyone to clone and use with
 
 ## Commits
 
-Commit (and push) after each small, working feature. **Do not add `Co-Authored-By` or any other AI/tool attribution to commit messages or PR descriptions.**
+**Every feature goes through a pull request.** Branch from `main` (`feature/<name>`), commit after each small working step, push the branch, and open a PR for the user to review. Never push features straight to `main`, and don't merge PRs unless the user asks. **Do not add `Co-Authored-By` or any other AI/tool attribution to commit messages or PR descriptions.**
+
+CI (`.github/workflows/ci.yml`) runs fmt, clippy (`-D warnings`) and tests on ubuntu and macOS for every PR and every push to main. Branch protection on `main` requires the **All checks** job to pass and the branch to be up to date before merging. Workflow files can only be pushed with a `gh` token that has the `workflow` scope.
 
 ## Commands
 
