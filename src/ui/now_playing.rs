@@ -52,42 +52,55 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     };
 
     let playback = &state.playback;
-    let icon = format!(
-        " {}  ",
-        if playback.paused {
-            icons.paused
-        } else {
-            icons.playing
-        }
-    );
+    let glyph = if playback.loading {
+        spinner_frame(icons.spinner)
+    } else if playback.paused {
+        icons.paused
+    } else {
+        icons.playing
+    };
+    let icon = format!(" {glyph}  ");
     // Leave room for the right-aligned settings.
     let room = (info.width as usize).saturating_sub(settings_width + icon.width() + 2);
+    // `:open` tracks have no artist; give the title the whole row then.
     let artist = truncate(&track.artist, room / 3, theme.icons.ellipsis);
-    let title = truncate(
-        &track.title,
-        room.saturating_sub(artist.width() + 3),
-        theme.icons.ellipsis,
-    );
-    let title_line = Line::from(vec![
+    let title_room = if track.artist.is_empty() {
+        room
+    } else {
+        room.saturating_sub(artist.width() + 3)
+    };
+    let title = truncate(&track.title, title_room, theme.icons.ellipsis);
+    let mut spans = vec![
         Span::styled(icon, Style::new().fg(theme.accent)),
         Span::styled(
             title.into_owned(),
             Style::new().add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!(" {} ", icons.sep), muted),
-        Span::styled(artist.into_owned(), muted),
-    ]);
-    frame.render_widget(title_line, info);
+    ];
+    if !track.artist.is_empty() {
+        spans.push(Span::styled(format!(" {} ", icons.sep), muted));
+        spans.push(Span::styled(artist.into_owned(), muted));
+    }
+    frame.render_widget(Line::from(spans), info);
 
-    let ratio = if track.duration.is_zero() {
+    // The player's duration is exact; metadata may be missing or approximate.
+    let duration = playback.duration.unwrap_or(track.duration);
+    let ratio = if duration.is_zero() {
         0.0
     } else {
-        playback.position.as_secs_f64() / track.duration.as_secs_f64()
+        (playback.position.as_secs_f64() / duration.as_secs_f64()).clamp(0.0, 1.0)
+    };
+    let total = if playback.loading {
+        format!("Loading{}", icons.ellipsis)
+    } else if duration.is_zero() {
+        "-:--".to_string()
+    } else {
+        fmt_duration(duration)
     };
     let line = progress_line(
         ratio,
         &fmt_duration(playback.position),
-        &fmt_duration(track.duration),
+        &total,
         progress.width,
         theme,
     );
@@ -145,4 +158,12 @@ fn progress_line(
         Span::styled(icons.bar_empty.repeat(empty), muted),
         Span::styled(format!(" {total} "), muted),
     ])
+}
+
+/// Spinner frame driven by the clock; the app redraws on every tick.
+fn spinner_frame(frames: &[&'static str]) -> &'static str {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    frames[(millis / 250 % frames.len() as u128) as usize]
 }

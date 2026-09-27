@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 use crate::command::{self, Completion};
 use crate::config::Config;
 use crate::keymap::{KeyPress, KeyResult, Keymap};
-use crate::player::{LoadId, MpvOptions, MpvPlayer, Player, PlayerEvent};
+use crate::player::{self, LoadId, MpvOptions, MpvPlayer, Player, PlayerEvent};
 use crate::ui;
 use crate::ui::theme::Theme;
 use action::{Action, View};
@@ -109,7 +109,15 @@ impl App {
             ..Default::default()
         };
         match MpvPlayer::spawn(options, player_tx).await {
-            Ok(player) => self.player = Some(Box::new(player)),
+            Ok(player) => {
+                self.player = Some(Box::new(player));
+                // mpv needs yt-dlp for YouTube sources, and only says so per track.
+                if !player::on_path("yt-dlp") {
+                    self.state.error(
+                        "yt-dlp not found: YouTube tracks won't play (install it, e.g. `brew install yt-dlp`)",
+                    );
+                }
+            }
             Err(e) => {
                 tracing::error!("starting mpv: {e:#}");
                 self.state.error(format!("{e:#}"));
