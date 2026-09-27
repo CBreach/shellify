@@ -2,6 +2,7 @@ mod cmdline;
 mod library;
 mod now_playing;
 mod queue;
+mod text;
 pub mod theme;
 mod tracks;
 
@@ -10,6 +11,7 @@ use std::time::Duration;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Modifier, Style};
+use ratatui::text::Line;
 use ratatui::widgets::{Block, BorderType};
 
 use crate::app::action::Pane;
@@ -52,10 +54,15 @@ fn pane_block(title: String, pane: Pane, state: &AppState, theme: &Theme) -> Blo
     } else {
         Style::new().fg(theme.muted)
     };
+    let title_style = if focused {
+        Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::new().fg(theme.text)
+    };
     Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(border)
-        .title(format!(" {title} "))
+        .title(Line::from(format!(" {title} ")).style(title_style))
 }
 
 fn highlight_style(pane: Pane, state: &AppState, theme: &Theme) -> Style {
