@@ -190,7 +190,7 @@ mod tests {
                 .collect();
             assert!(screen.contains("Settings"), "{w}x{h}");
             assert!(
-                screen.contains("Reset appearance"),
+                screen.contains("Reset all settings"),
                 "{w}x{h}: selected row scrolled off"
             );
         }

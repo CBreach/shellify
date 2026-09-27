@@ -10,6 +10,9 @@ pub struct Appearance {
     pub theme: ThemeConfig,
     pub color: ColorMode,
     pub icons: IconPack,
+    /// Mouse capture: click, double-click and scroll. Off by default because
+    /// it takes over the terminal's own click-drag text selection.
+    pub mouse: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,6 +25,7 @@ pub enum SettingRow {
     SelectionFg,
     Icons,
     Color,
+    Mouse,
     Reset,
 }
 
@@ -46,7 +50,7 @@ pub const NAMED_COLORS: &[&str] = &[
 ];
 
 impl SettingRow {
-    pub const ALL: [SettingRow; 9] = [
+    pub const ALL: [SettingRow; 10] = [
         SettingRow::Preset,
         SettingRow::Accent,
         SettingRow::Text,
@@ -55,6 +59,7 @@ impl SettingRow {
         SettingRow::SelectionFg,
         SettingRow::Icons,
         SettingRow::Color,
+        SettingRow::Mouse,
         SettingRow::Reset,
     ];
 
@@ -68,7 +73,8 @@ impl SettingRow {
             Self::SelectionFg => "Selection text",
             Self::Icons => "Icons",
             Self::Color => "Color",
-            Self::Reset => "Reset appearance to defaults",
+            Self::Mouse => "Mouse",
+            Self::Reset => "Reset all settings to defaults",
         }
     }
 
@@ -111,6 +117,7 @@ impl Appearance {
             SettingRow::SelectionFg => color(&t.selection_fg),
             SettingRow::Icons => self.icons.label().into(),
             SettingRow::Color => self.color.label().into(),
+            SettingRow::Mouse => if self.mouse { "on" } else { "off" }.into(),
             SettingRow::Reset => String::new(),
         }
     }
@@ -126,6 +133,7 @@ impl Appearance {
             }
             SettingRow::Icons => self.icons = cycle(&IconPack::ALL, &self.icons, delta),
             SettingRow::Color => self.color = cycle(&ColorMode::ALL, &self.color, delta),
+            SettingRow::Mouse => self.mouse = !self.mouse,
             SettingRow::Reset => {}
             color_row => {
                 let slot = self.color_slot(color_row).expect("color row");
@@ -191,5 +199,10 @@ mod tests {
         a.step(SettingRow::Color, -1);
         assert_eq!(a.color, ColorMode::Never);
         assert_eq!(a.value_label(SettingRow::Color), "never");
+        a.step(SettingRow::Mouse, 1);
+        assert!(a.mouse);
+        assert_eq!(a.value_label(SettingRow::Mouse), "on");
+        a.step(SettingRow::Mouse, -1);
+        assert!(!a.mouse);
     }
 }

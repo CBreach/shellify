@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use directories::BaseDirs;
 use serde::Deserialize;
-use toml_edit::DocumentMut;
+use toml_edit::{DocumentMut, Value};
 
 use crate::app::settings::Appearance;
 use crate::ui::icons::IconPack;
@@ -26,6 +26,7 @@ pub struct Config {
 pub struct UiConfig {
     pub color: ColorMode,
     pub icons: IconPack,
+    pub mouse: bool,
 }
 
 impl Config {
@@ -76,13 +77,15 @@ pub fn save_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
     let ui_values = [
         (
             "color",
-            (appearance.color != ColorMode::default()).then(|| appearance.color.label()),
+            (appearance.color != ColorMode::default()).then(|| appearance.color.label().into()),
         ),
         (
             "icons",
-            (appearance.icons != IconPack::default()).then(|| appearance.icons.label()),
+            (appearance.icons != IconPack::default()).then(|| appearance.icons.label().into()),
         ),
+        ("mouse", appearance.mouse.then(|| true.into())),
     ];
+    let theme_values = theme_values.map(|(k, v)| (k, v.map(Value::from)));
     set_table(&mut doc, "theme", &theme_values);
     set_table(&mut doc, "ui", &ui_values);
 
@@ -96,14 +99,14 @@ pub fn save_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
 }
 
 /// Sets or removes each key in `[name]`, dropping the table if it ends up empty.
-fn set_table(doc: &mut DocumentMut, name: &str, values: &[(&str, Option<&str>)]) {
+fn set_table(doc: &mut DocumentMut, name: &str, values: &[(&str, Option<Value>)]) {
     let item = doc.entry(name).or_insert(toml_edit::table());
     let Some(table) = item.as_table_mut() else {
         return;
     };
-    for &(key, value) in values {
+    for (key, value) in values {
         match value {
-            Some(v) => table[key] = toml_edit::value(v),
+            Some(v) => table[key] = toml_edit::value(v.clone()),
             None => {
                 table.remove(key);
             }
@@ -133,6 +136,7 @@ mod tests {
                 ..Default::default()
             },
             icons: IconPack::Ascii,
+            mouse: true,
             ..Default::default()
         };
         save_appearance(&path, &appearance).unwrap();
@@ -152,6 +156,8 @@ mod tests {
         let loaded = Config::load(&path).unwrap();
         assert_eq!(loaded.theme, appearance.theme);
         assert_eq!(loaded.ui.icons, IconPack::Ascii);
+        assert!(loaded.ui.mouse);
+        assert!(saved.contains("mouse = true"), "{saved}");
         assert_eq!(loaded.keys["ctrl-n"], "next");
 
         // Back to defaults: the [theme] and [ui] tables disappear entirely.

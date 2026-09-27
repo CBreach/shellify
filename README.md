@@ -119,9 +119,14 @@ Shellify honors [`NO_COLOR`](https://no-color.org) and `TERM=dumb`. Without colo
 [ui]
 color = "auto"     # auto (default) | always | never
 icons = "unicode"  # unicode (default) | ascii | nerd
+mouse = false      # click, double-click and scroll; also in the Settings tab
 ```
 
 `ascii` draws everything with plain ASCII, including the borders, for legacy terminals and serial consoles. `nerd` uses [Nerd Font](https://www.nerdfonts.com) glyphs and requires a Nerd Font in your terminal. It's opt-in because terminals can't report which font they use.
+
+### Mouse
+
+Mouse support is off by default. Turn it on under **Settings → Mouse** (or set `mouse = true` in `[ui]`). While it's on, your terminal's own click-and-drag text selection needs **Shift** held in most terminals. Every mouse action also has a key.
 
 ## Your accounts & privacy
 

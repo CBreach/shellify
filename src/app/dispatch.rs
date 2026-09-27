@@ -6,7 +6,7 @@ use directories::BaseDirs;
 use super::action::{Action, Focus, Pane, Seek, Select, View, Volume};
 use super::settings::SettingRow;
 use super::state::Mode;
-use super::{App, demo};
+use super::{App, demo, set_mouse_capture};
 use crate::config;
 use crate::player::{EndReason, PlayerEvent};
 use crate::provider::Track;
@@ -228,6 +228,11 @@ impl App {
                 return;
             }
         }
+        if a.mouse != self.mouse_captured {
+            self.mouse_captured = a.mouse;
+            set_mouse_capture(a.mouse);
+        }
+        let a = &self.state.appearance;
         match config::save_appearance(&self.config_path, a) {
             Ok(()) => {
                 let label = self.state.config_path_label.clone();

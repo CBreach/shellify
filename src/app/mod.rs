@@ -9,7 +9,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::Result;
-use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers,
+};
 use futures::StreamExt;
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc;
@@ -48,6 +51,8 @@ pub struct App {
     /// Tracks that failed to play in a row, to stop skipping through a queue
     /// that can't play at all (e.g. no network).
     failures: usize,
+    /// Whether terminal mouse capture is currently on (follows the setting).
+    mouse_captured: bool,
 }
 
 impl App {
@@ -61,6 +66,7 @@ impl App {
             theme: config.theme.clone(),
             color: config.ui.color,
             icons: config.ui.icons,
+            mouse: config.ui.mouse,
         };
         state.config_path_label = display_path(&config_path);
         state.tab_labels = [("view music", "Music"), ("view settings", "Settings")].map(
@@ -77,6 +83,7 @@ impl App {
             player: None,
             current_load: None,
             failures: 0,
+            mouse_captured: false,
         })
     }
 
@@ -85,6 +92,10 @@ impl App {
         spawn_input(tx.clone());
         spawn_ticker(tx.clone());
 
+        if self.state.appearance.mouse {
+            self.mouse_captured = true;
+            set_mouse_capture(true);
+        }
         self.state.info("Welcome to Shellify! Press ? for help");
         self.start_player(tx).await;
         while !self.state.should_quit {
@@ -99,6 +110,8 @@ impl App {
         if let Some(mut player) = self.player.take() {
             player.shutdown().await;
         }
+        // Always release the mouse, or the shell keeps receiving escape codes.
+        set_mouse_capture(false);
         Ok(())
     }
 
@@ -289,6 +302,23 @@ fn pane_hints(keymap: &Keymap) -> [Vec<Hint>; 3] {
             ("help", "help"),
         ]),
     ]
+}
+
+/// Turns terminal mouse reporting on or off. With it on, the terminal's own
+/// click-drag selection needs Shift held (in most emulators).
+pub(crate) fn set_mouse_capture(on: bool) {
+    let mut out = std::io::stdout();
+    let result = if on {
+        crossterm::execute!(out, EnableMouseCapture)
+    } else {
+        crossterm::execute!(out, DisableMouseCapture)
+    };
+    if let Err(e) = result {
+        tracing::warn!(
+            "couldn't {} mouse capture: {e}",
+            if on { "enable" } else { "disable" }
+        );
+    }
 }
 
 fn settings_hints(keymap: &Keymap) -> Vec<Hint> {

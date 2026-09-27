@@ -35,10 +35,16 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
             Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
         ),
     ];
+    let heading = Style::new().fg(theme.accent).add_modifier(Modifier::BOLD);
     let mut selected_line = 0;
     for (i, &row) in SettingRow::ALL.iter().enumerate() {
-        if row == SettingRow::Reset {
-            lines.push(Line::from(""));
+        match row {
+            SettingRow::Mouse => {
+                lines.push(Line::from(""));
+                lines.push(Line::styled(" Behavior", heading));
+            }
+            SettingRow::Reset => lines.push(Line::from("")),
+            _ => {}
         }
         let selected = i == state.settings_cursor;
         if selected {
@@ -116,6 +122,10 @@ fn preview(state: &AppState, theme: &Theme, row: SettingRow, muted: Style) -> Ve
             icons.knob,
             icons.bar_empty,
         ))],
+        SettingRow::Mouse if state.appearance.mouse => vec![Span::styled(
+            "click, double-click, scroll (Shift+drag selects text)",
+            muted,
+        )],
         SettingRow::Color if theme.mono && state.appearance.color == ColorMode::Auto => {
             vec![Span::styled("(off: NO_COLOR or TERM=dumb is set)", muted)]
         }
