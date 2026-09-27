@@ -58,6 +58,7 @@ cargo run --release
 | `r` | Cycle repeat (off → all → one) |
 | `/` | Search |
 | `?` | Help: every key and command |
+| `v` / `V` | Toggle the visualizer / next style |
 | `1` / `2` | Music / Settings tab |
 | `:` | Command mode |
 | `q` | Quit |
@@ -82,6 +83,7 @@ Press `:` then type a command. Tab completes command names, and ↑/↓ browse h
 | `:settings`, `:view <music\|settings>` | Switch tab |
 | `:resize library 30`, `:resize queue +5`, `:resize reset` | Set a side pane's width (% of the window) |
 | `:theme <name>`, `:theme import <file>`, `:theme reload` | Switch, import or reload color themes |
+| `:visualizer [on\|off\|next\|bars\|mirror\|wave\|dots]` | Toggle the visualizer or pick its style |
 | `:q` | Quit |
 
 ## Configuration
@@ -112,6 +114,27 @@ accent = "#f5c2e7"      # focused borders, selection, progress bar
 # error = "red"
 # selection_fg = "black"  # text drawn on the accent color
 ```
+
+### Visualizer
+
+Press `v` (or `:visualizer`) to show an animated visualizer in the Now Playing panel, and `V` to cycle its style:
+
+- **bars**: vertical bars with falling peak caps
+- **mirror**: bars growing up and down from a center line
+- **wave**: an oscilloscope-style line
+- **dots**: bouncing dots with peak markers
+
+You can also set it in **Settings → Visualizer**, with `:visualizer [on|off|next|bars|mirror|wave|dots]`, or in the config:
+
+```toml
+[ui]
+visualizer = true
+visualizer_style = "wave"
+```
+
+It reacts to the music you're playing: mpv measures the loudness (with FFmpeg's `astats`, which leaves the audio untouched), so the bars rise and punch with the track. mpv doesn't expose a frequency spectrum, so how that energy spreads across the bars is a smooth animated pattern, not a true spectrum analyzer. Without mpv, it just drifts gently.
+
+It needs a window at least 26 rows tall and hides itself in smaller ones. It animates at about 30fps only while music plays or it's still settling; when paused or off, it costs nothing. It works with `NO_COLOR` and the ascii icon pack.
 
 ### Custom themes
 

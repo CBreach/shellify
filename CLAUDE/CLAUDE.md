@@ -62,6 +62,15 @@ Smoke-testing the TUI headlessly: run it in tmux (`tmux new-session -d -s t -x 1
   - Every change goes through `App::apply_appearance`, which rebuilds the theme and calls `config::save_appearance`. That uses `toml_edit` to keep the user's comments and `[keys]`, writes atomically (temp file, then rename), and leaves default values out.
 - **Modes:** Normal, Command (`:`), Search (`/`) and EditSetting. Both prompts use `command::LineEditor` (history, char-aware cursor). While a prompt is open, the status message is shown right-aligned as a hint and cleared on the next key.
 - **Responsive layout** lives in `src/ui/layout.rs` as a pure `compute(area, focus, sizes)`. From 80 cols up it shows three panes: the side panes take the user's `PaneSizes` percentages (set by dragging a border or with `:resize`, saved as `[ui] library_width`/`queue_width`, and clamped so each pane keeps at least 14 cols and Tracks at least 30); narrow (<80) shows only the focused pane, with a pane switcher in the header; below 40x12 you get a "terminal too small" screen. `src/ui/mod.rs` has TestBackend render tests at each of these sizes. Keep them passing when you change the UI.
+- **Visualizer:**
+  - `src/app/visualizer.rs` is a pure, deterministic model (its own xorshift, time passed in): overall loudness plus bands, with peaks and attack/decay.
+  - `src/ui/visualizer.rs` draws the bars, mirror, wave and dots styles. Glyphs come from `icons.viz_*`, and `icons.braille` switches between canvas braille and cells.
+  - Loudness comes from mpv:
+    - `Player::set_metering` adds or removes an `af` `astats` filter labelled `@shellify-meter`;
+    - the player observes `af-metadata/shellify-meter`, which arrives as `PlayerEvent::Levels`;
+    - metering runs only while the visualizer is on.
+  - The layout gives Now Playing `VIZ_ROWS` extra rows only when the window has at least `VIZ_MIN_HEIGHT` rows.
+  - The animation clock (`spawn_animator`, driven by a `watch<bool>`) sends `AppEvent::Frame` at 30fps only while the visualizer is on and either playing or not yet at rest (`App::sync_animation` after each event batch).
 - **Custom themes** (`src/themes.rs`): `*.toml` files in `themes/` next to the config file (`themes_dir(config_path)`), loaded at startup into `state.user_themes` and resolved by `Theme::named` (a custom theme overrides a built-in with the same id). `:theme import` validates a Shellify `.toml` or converts a base16 `.yaml`, then writes a normalized `<id>.toml` and never overwrites. A broken file is skipped with a warning; a config that names a missing theme falls back to default. `theme_ids()` lists what the Settings Theme row cycles through.
 - **Theme = colors + icon pack + mono flag.** Never hard-code colors or glyphs in `src/ui/`. Use `theme.<color>`, `theme.selection()` and `theme.icons.*`, so `NO_COLOR` and the ascii pack keep working.
 - **UI** (`src/ui/`) only draws: it takes `&mut AppState` because ratatui's `ListState`/`TableState` (scroll offsets) live in the state.
