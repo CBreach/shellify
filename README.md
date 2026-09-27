@@ -2,25 +2,30 @@
 
 Listen to your music from the terminal. Shellify is a keyboard-driven, full-screen TUI with vim-style navigation and a `:` command mode. It connects to your own streaming accounts.
 
-> **Status: early development.** The interface, keys and commands work, but playback is simulated on demo playlists. The roadmap below lists what's coming next.
+> **Status: early development.** The interface, keys and commands work, and audio plays through mpv. There's no account sign-in yet: the built-in demo playlists play the top YouTube search result for each song, and `:open` plays any URL or local file. The roadmap below lists what's coming next.
 
 ## Roadmap
 
 - [x] TUI skeleton: panes, vim keys, `:` command mode, `/` search, queue, repeat/shuffle, configurable keys
-- [ ] Real audio playback through mpv
+- [x] Real audio playback through mpv
 - [ ] YouTube Music: sign in, search, your library, playlists and liked songs
 - [ ] Spotify (Premium required for in-terminal playback)
 - [ ] Apple Music (macOS)
 
 ## Requirements
 
+- macOS or Linux. Playback controls mpv over a Unix socket, so Windows isn't supported yet.
 - Rust (stable, edition 2024): <https://rustup.rs>
-- [mpv](https://mpv.io) and [yt-dlp](https://github.com/yt-dlp/yt-dlp) for playback
+- [mpv](https://mpv.io) and [yt-dlp](https://github.com/yt-dlp/yt-dlp), both on your `PATH`. Shellify runs mpv in the background; yt-dlp is what lets mpv play YouTube.
 
 ```sh
 # macOS
 brew install mpv yt-dlp
+# Debian/Ubuntu (distro yt-dlp packages go stale fast; pipx keeps it current)
+sudo apt install mpv pipx && pipx install yt-dlp
 ```
+
+If either is missing, Shellify still starts and tells you what to install.
 
 Shellify adapts to the window size. It shows three panes from 80 columns up and one pane at a time below that (switch with `h`/`l`), and needs at least 40×12.
 
@@ -69,6 +74,7 @@ Press `:` then type a command. Tab completes command names, and ↑/↓ browse h
 | `:vol 60` / `+5` / `-5` | Set or change volume |
 | `:repeat [off\|all\|one]` | Set or cycle repeat |
 | `:shuffle`, `:clear` | Shuffle / clear the queue |
+| `:open <url-or-file>` | Play a URL (anything yt-dlp supports) or a local audio file |
 | `:queue`, `:focus <pane>` | Jump to a pane |
 | `:help` | Show the help overlay |
 | `:settings`, `:view <music\|settings>` | Switch tab |
