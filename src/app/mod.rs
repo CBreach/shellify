@@ -46,7 +46,7 @@ impl App {
         Ok(Self {
             state,
             keymap,
-            theme: Theme::from_config(&config.theme, config.ui.color)?,
+            theme: Theme::from_config(&config.theme, config.ui.color, config.ui.icons)?,
             last_tick: Instant::now(),
         })
     }
@@ -56,7 +56,7 @@ impl App {
         spawn_input(tx.clone());
         spawn_ticker(tx);
 
-        self.state.info("Welcome to Shellify · press ? for help");
+        self.state.info("Welcome to Shellify! Press ? for help");
         while !self.state.should_quit {
             terminal.draw(|frame| ui::draw(frame, &mut self.state, &self.theme))?;
             let Some(event) = rx.recv().await else { break };

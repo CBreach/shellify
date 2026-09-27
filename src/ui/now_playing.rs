@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType};
+use ratatui::widgets::Block;
 use unicode_width::UnicodeWidthStr;
 
 use super::fmt_duration;
@@ -14,8 +14,9 @@ use crate::app::state::AppState;
 const VOLUME_CELLS: usize = 10;
 
 pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
+    let icons = theme.icons;
     let block = Block::bordered()
-        .border_type(BorderType::Rounded)
+        .border_set(theme.icons.border)
         .border_style(Style::new().fg(theme.muted))
         .title(" Now Playing ");
     let inner = block.inner(area);
@@ -31,7 +32,13 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     let muted = Style::new().fg(theme.muted);
     let Some(track) = state.queue.current() else {
         frame.render_widget(
-            Line::styled("Nothing playing · select a track and press Enter", muted),
+            Line::styled(
+                format!(
+                    "Nothing playing {} select a track and press Enter",
+                    icons.sep
+                ),
+                muted,
+            ),
             info,
         );
         frame.render_widget(
@@ -42,18 +49,29 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     };
 
     let playback = &state.playback;
-    let icon = if playback.paused { " ⏸  " } else { " ▶  " };
+    let icon = format!(
+        " {}  ",
+        if playback.paused {
+            icons.paused
+        } else {
+            icons.playing
+        }
+    );
     // Leave room for the right-aligned settings.
     let room = (info.width as usize).saturating_sub(settings_width + icon.width() + 2);
-    let artist = truncate(&track.artist, room / 3);
-    let title = truncate(&track.title, room.saturating_sub(artist.width() + 3));
+    let artist = truncate(&track.artist, room / 3, theme.icons.ellipsis);
+    let title = truncate(
+        &track.title,
+        room.saturating_sub(artist.width() + 3),
+        theme.icons.ellipsis,
+    );
     let title_line = Line::from(vec![
         Span::styled(icon, Style::new().fg(theme.accent)),
         Span::styled(
             title.into_owned(),
             Style::new().add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" · ", muted),
+        Span::styled(format!(" {} ", icons.sep), muted),
         Span::styled(artist.into_owned(), muted),
     ]);
     frame.render_widget(title_line, info);
@@ -73,8 +91,9 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     frame.render_widget(line, progress);
 }
 
-/// `⟳ all   vol ━━━━━━━─── 70%`
+/// `⟳ all   vol ━━━━━━━─── 70%` (glyphs from the icon pack)
 fn settings_line(state: &AppState, theme: &Theme) -> Line<'static> {
+    let icons = theme.icons;
     let muted = Style::new().fg(theme.muted);
     let accent = Style::new().fg(theme.accent);
     let repeat = state.queue.repeat;
@@ -87,10 +106,10 @@ fn settings_line(state: &AppState, theme: &Theme) -> Line<'static> {
     let volume = usize::from(state.playback.volume);
     let filled = (volume * VOLUME_CELLS).div_ceil(100);
     Line::from(vec![
-        Span::styled(format!("⟳ {}", repeat.label()), repeat_style),
+        Span::styled(format!("{} {}", icons.repeat, repeat.label()), repeat_style),
         Span::styled("   vol ", muted),
-        Span::styled("━".repeat(filled), accent),
-        Span::styled("─".repeat(VOLUME_CELLS - filled), muted),
+        Span::styled(icons.bar_filled.repeat(filled), accent),
+        Span::styled(icons.bar_empty.repeat(VOLUME_CELLS - filled), muted),
         Span::styled(format!(" {volume:>3}% "), muted),
     ])
 }
@@ -103,6 +122,7 @@ fn progress_line(
     width: u16,
     theme: &Theme,
 ) -> Line<'static> {
+    let icons = theme.icons;
     let labels = elapsed.width() + total.width() + 4;
     let bar = (width as usize).saturating_sub(labels);
     let (filled, knob, empty) = progress_split(ratio, bar);
@@ -110,9 +130,9 @@ fn progress_line(
     let accent = Style::new().fg(theme.accent);
     Line::from(vec![
         Span::styled(format!(" {elapsed} "), muted),
-        Span::styled("━".repeat(filled), accent),
-        Span::styled("●".repeat(knob), accent),
-        Span::styled("─".repeat(empty), muted),
+        Span::styled(icons.bar_filled.repeat(filled), accent),
+        Span::styled(icons.knob.repeat(knob), accent),
+        Span::styled(icons.bar_empty.repeat(empty), muted),
         Span::styled(format!(" {total} "), muted),
     ])
 }

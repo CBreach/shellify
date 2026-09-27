@@ -101,8 +101,11 @@ Shellify honors [`NO_COLOR`](https://no-color.org) and `TERM=dumb`. Without colo
 
 ```toml
 [ui]
-color = "auto"   # auto (default) | always | never
+color = "auto"     # auto (default) | always | never
+icons = "unicode"  # unicode (default) | ascii | nerd
 ```
+
+`ascii` draws everything with plain ASCII, including the borders, for legacy terminals and serial consoles. `nerd` uses [Nerd Font](https://www.nerdfonts.com) glyphs and requires a Nerd Font in your terminal. It's opt-in because terminals can't report which font they use.
 
 ## Your accounts & privacy
 

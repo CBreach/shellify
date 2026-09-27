@@ -1,5 +1,6 @@
 mod cmdline;
 mod help;
+pub mod icons;
 mod library;
 mod now_playing;
 mod queue;
@@ -13,7 +14,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, BorderType};
+use ratatui::widgets::Block;
 
 use crate::app::action::Pane;
 use crate::app::state::AppState;
@@ -60,13 +61,13 @@ fn pane_block(title: String, pane: Pane, state: &AppState, theme: &Theme) -> Blo
         (Style::new().fg(theme.muted), Style::new().fg(theme.text))
     };
     // Without color, a heavier border marks the focused pane.
-    let border_type = if focused && theme.mono {
-        BorderType::Thick
+    let border_set = if focused && theme.mono {
+        theme.icons.border_focus
     } else {
-        BorderType::Rounded
+        theme.icons.border
     };
     Block::bordered()
-        .border_type(border_type)
+        .border_set(border_set)
         .border_style(border)
         .title(Line::from(format!(" {title} ")).style(title_style))
 }

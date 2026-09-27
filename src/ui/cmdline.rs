@@ -15,11 +15,12 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
         Mode::Search => ("/", &state.search_line),
         Mode::Normal => {
             let mode = Span::styled(" NORMAL ", theme.selection());
-            // Errors get a ✗ as well as color, so they read in monochrome too.
+            // Errors get a symbol as well as color, so they read in monochrome too.
             let status = match &state.status {
-                Some(s) if s.level == StatusLevel::Error => {
-                    Span::styled(format!("✗ {}", s.text), Style::new().fg(theme.error))
-                }
+                Some(s) if s.level == StatusLevel::Error => Span::styled(
+                    format!("{} {}", theme.icons.error, s.text),
+                    Style::new().fg(theme.error),
+                ),
                 Some(s) => Span::raw(s.text.clone()),
                 None => Span::raw(""),
             };
@@ -46,7 +47,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
 
 /// `enter play · a add · ? help`, dropping hints from the end until it fits.
 fn hint_line(hints: &[Hint], room: usize, theme: &Theme) -> Line<'static> {
-    let sep = " · ";
+    let sep = format!(" {} ", theme.icons.sep);
     let width = |n: usize| -> usize {
         let items: usize = hints[..n]
             .iter()
@@ -61,7 +62,7 @@ fn hint_line(hints: &[Hint], room: usize, theme: &Theme) -> Line<'static> {
     let mut spans = Vec::new();
     for (i, hint) in hints[..n].iter().enumerate() {
         if i > 0 {
-            spans.push(Span::styled(sep, Style::new().fg(theme.muted)));
+            spans.push(Span::styled(sep.clone(), Style::new().fg(theme.muted)));
         }
         spans.push(Span::styled(
             hint.key.clone(),

@@ -11,7 +11,7 @@ use crate::app::state::AppState;
 use crate::ui::theme::Theme;
 
 pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) {
-    let title = format!("Queue · {}", state.queue.tracks().len());
+    let title = format!("Queue {} {}", theme.icons.sep, state.queue.tracks().len());
     let block = pane_block(title, Pane::Queue, state, theme);
 
     if state.queue.tracks().is_empty() {
@@ -41,7 +41,10 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
             let playing = current == Some(i);
             let (marker, title_style) = if playing {
                 (
-                    Span::styled(" ♪ ", Style::new().fg(theme.accent)),
+                    Span::styled(
+                        format!(" {} ", theme.icons.current),
+                        Style::new().fg(theme.accent),
+                    ),
                     Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
                 )
             } else {
@@ -53,12 +56,15 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
             ListItem::new(vec![
                 Line::from(vec![
                     marker,
-                    Span::styled(truncate(&t.title, text_width).into_owned(), title_style),
+                    Span::styled(
+                        truncate(&t.title, text_width, theme.icons.ellipsis).into_owned(),
+                        title_style,
+                    ),
                 ]),
                 Line::from(vec![
                     Span::raw("   "),
                     Span::styled(
-                        truncate(&t.artist, text_width).into_owned(),
+                        truncate(&t.artist, text_width, theme.icons.ellipsis).into_owned(),
                         Style::new().fg(theme.muted),
                     ),
                 ]),

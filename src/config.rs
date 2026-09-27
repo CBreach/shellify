@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use directories::BaseDirs;
 use serde::Deserialize;
 
+use crate::ui::icons::IconPack;
 use crate::ui::theme::{ColorMode, ThemeConfig};
 
 #[derive(Debug, Default, Deserialize)]
@@ -22,6 +23,7 @@ pub struct Config {
 #[serde(default, deny_unknown_fields)]
 pub struct UiConfig {
     pub color: ColorMode,
+    pub icons: IconPack,
 }
 
 impl Config {

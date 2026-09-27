@@ -2,25 +2,26 @@ use std::borrow::Cow;
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-/// Shortens `s` to at most `max` terminal cells, ending with `…` when cut.
-pub fn truncate(s: &str, max: usize) -> Cow<'_, str> {
+/// Shortens `s` to at most `max` terminal cells, ending with `ellipsis` when cut.
+pub fn truncate<'a>(s: &'a str, max: usize, ellipsis: &str) -> Cow<'a, str> {
     if s.width() <= max {
         return Cow::Borrowed(s);
     }
-    if max == 0 {
-        return Cow::Borrowed("");
+    let ell = ellipsis.width();
+    if max < ell {
+        return Cow::Owned(".".repeat(max));
     }
     let mut out = String::new();
     let mut width = 0;
     for c in s.chars() {
         let w = c.width().unwrap_or(0);
-        if width + w > max - 1 {
+        if width + w > max - ell {
             break;
         }
         out.push(c);
         width += w;
     }
-    out.push('…');
+    out.push_str(ellipsis);
     Cow::Owned(out)
 }
 
@@ -40,20 +41,22 @@ mod tests {
 
     #[test]
     fn truncate_leaves_short_text_alone() {
-        assert_eq!(truncate("Nightcall", 9), "Nightcall");
+        assert_eq!(truncate("Nightcall", 9, "…"), "Nightcall");
     }
 
     #[test]
     fn truncate_adds_ellipsis_within_width() {
-        assert_eq!(truncate("Harder, Better", 8), "Harder,…");
-        assert_eq!(truncate("abc", 1), "…");
-        assert_eq!(truncate("abc", 0), "");
+        assert_eq!(truncate("Harder, Better", 8, "…"), "Harder,…");
+        assert_eq!(truncate("Harder, Better", 8, "..."), "Harde...");
+        assert_eq!(truncate("abc", 1, "…"), "…");
+        assert_eq!(truncate("abcd", 2, "..."), "..");
+        assert_eq!(truncate("abc", 0, "…"), "");
     }
 
     #[test]
     fn truncate_counts_wide_chars_as_two_cells() {
         // Each CJK char is 2 cells: 2 chars + ellipsis = 5 cells.
-        let t = truncate("夜に駆ける", 6);
+        let t = truncate("夜に駆ける", 6, "…");
         assert_eq!(t, "夜に…");
         assert!(t.width() <= 6);
     }

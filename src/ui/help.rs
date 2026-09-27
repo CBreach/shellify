@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
+use ratatui::widgets::{Block, Clear, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 use super::theme::Theme;
@@ -18,13 +18,13 @@ const USAGE_COLUMN: usize = 26;
 pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
     let area = popup_area(frame.area());
     let block = Block::bordered()
-        .border_type(BorderType::Rounded)
+        .border_set(theme.icons.border)
         .border_style(Style::new().fg(theme.accent))
         .title(
             Line::from(" Help ").style(Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)),
         )
         .title_bottom(
-            Line::from(" j/k scroll · esc close ")
+            Line::from(format!(" j/k scroll {} esc close ", theme.icons.sep))
                 .style(Style::new().fg(theme.muted))
                 .right_aligned(),
         );

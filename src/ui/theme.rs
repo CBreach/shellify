@@ -4,6 +4,8 @@ use anyhow::{Result, anyhow, bail};
 use ratatui::style::{Color, Modifier, Style};
 use serde::Deserialize;
 
+use super::icons::{IconPack, Icons};
+
 /// The `[theme]` table in config.toml: an optional preset plus per-color
 /// overrides. Colors are names (`cyan`, `light-blue`), `#rrggbb` or an
 /// ANSI index (`208`).
@@ -60,6 +62,7 @@ pub struct Theme {
     /// No colors at all: every signal must survive via symbols, weight
     /// (bold, thick borders) and reverse video.
     pub mono: bool,
+    pub icons: &'static Icons,
 }
 
 pub const PRESETS: &[&str] = &["default", "nord", "gruvbox", "catppuccin"];
@@ -75,6 +78,7 @@ impl Theme {
                 error: Color::Red,
                 selection_fg: Color::Black,
                 mono: false,
+                icons: IconPack::Unicode.icons(),
             },
             "nord" => Self {
                 accent: rgb(0x88c0d0),
@@ -83,6 +87,7 @@ impl Theme {
                 error: rgb(0xbf616a),
                 selection_fg: rgb(0x2e3440),
                 mono: false,
+                icons: IconPack::Unicode.icons(),
             },
             "gruvbox" => Self {
                 accent: rgb(0xfabd2f),
@@ -91,6 +96,7 @@ impl Theme {
                 error: rgb(0xfb4934),
                 selection_fg: rgb(0x282828),
                 mono: false,
+                icons: IconPack::Unicode.icons(),
             },
             "catppuccin" => Self {
                 accent: rgb(0xcba6f7),
@@ -99,6 +105,7 @@ impl Theme {
                 error: rgb(0xf38ba8),
                 selection_fg: rgb(0x1e1e2e),
                 mono: false,
+                icons: IconPack::Unicode.icons(),
             },
             _ => return None,
         };
@@ -114,6 +121,7 @@ impl Theme {
             error: Color::Reset,
             selection_fg: Color::Reset,
             mono: true,
+            icons: self.icons,
         }
     }
 
@@ -127,8 +135,12 @@ impl Theme {
         }
     }
 
-    pub fn from_config(config: &ThemeConfig, color: ColorMode) -> Result<Self> {
-        Ok(Self::from_theme_config(config)?.with_color_mode(color))
+    pub fn from_config(config: &ThemeConfig, color: ColorMode, icons: IconPack) -> Result<Self> {
+        let theme = Self::from_theme_config(config)?.with_color_mode(color);
+        Ok(Self {
+            icons: icons.icons(),
+            ..theme
+        })
     }
 
     pub fn with_color_mode(self, color: ColorMode) -> Self {

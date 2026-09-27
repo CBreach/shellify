@@ -17,10 +17,11 @@ const COLUMN_SPACING: u16 = 1;
 pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) {
     let total: Duration = state.tracks.iter().map(|t| t.duration).sum();
     let title = format!(
-        "{} · {} tracks · {} min",
+        "{} {sep} {} tracks {sep} {} min",
         state.tracks_title,
         state.tracks.len(),
-        total.as_secs() / 60
+        total.as_secs() / 60,
+        sep = theme.icons.sep,
     );
     let block = pane_block(title, Pane::Tracks, state, theme);
 
@@ -45,7 +46,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
         Constraint::Fill(2),
         Constraint::Length(7),
     ];
-    // Resolve the columns ourselves so long titles can be cut with `…`
+    // Resolve the columns ourselves so long titles can be cut with an ellipsis
     // instead of being clipped mid-word by the table.
     let inner_width = area.width.saturating_sub(2);
     let cols = Layout::horizontal(widths)
@@ -62,8 +63,8 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
         .map(|(i, t)| {
             let playing = current.as_deref() == Some(t.id.as_str());
             let marker = match (playing, paused) {
-                (true, false) => "▶".to_string(),
-                (true, true) => "⏸".to_string(),
+                (true, false) => theme.icons.playing.to_string(),
+                (true, true) => theme.icons.paused.to_string(),
                 _ => (i + 1).to_string(),
             };
             let marker_style = if playing {
@@ -73,8 +74,8 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
             };
             let row = Row::new([
                 Cell::from(Line::from(marker).right_aligned()).style(marker_style),
-                Cell::from(truncate(&t.title, title_w).into_owned()),
-                Cell::from(truncate(&t.artist, artist_w).into_owned()),
+                Cell::from(truncate(&t.title, title_w, theme.icons.ellipsis).into_owned()),
+                Cell::from(truncate(&t.artist, artist_w, theme.icons.ellipsis).into_owned()),
                 Cell::from(Line::from(fmt_duration(t.duration)).right_aligned())
                     .style(Style::new().fg(theme.muted)),
             ]);

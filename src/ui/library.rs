@@ -20,10 +20,13 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
             // `♫ name ········ 12`, with the count flush right.
             let count = format!(" {} ", p.tracks.len());
             let name_width = inner_width.saturating_sub(count.len() + 2);
-            let name = truncate(&p.name, name_width);
+            let name = truncate(&p.name, name_width, theme.icons.ellipsis);
             let pad = name_width.saturating_sub(name.width());
             ListItem::new(Line::from(vec![
-                Span::styled("♫ ", Style::new().fg(theme.accent)),
+                Span::styled(
+                    format!("{} ", theme.icons.playlist),
+                    Style::new().fg(theme.accent),
+                ),
                 Span::raw(format!("{name}{}", " ".repeat(pad))),
                 Span::styled(count, Style::new().fg(theme.muted)),
             ]))
