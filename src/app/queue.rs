@@ -92,6 +92,7 @@ mod tests {
                 title: format!("t{i}"),
                 artist: "a".into(),
                 duration: Duration::from_secs(60),
+                source: None,
             })
             .collect()
     }

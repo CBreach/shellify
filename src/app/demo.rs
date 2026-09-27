@@ -11,7 +11,18 @@ fn track(id: &str, title: &str, artist: &str, secs: u64) -> Track {
         title: title.into(),
         artist: artist.into(),
         duration: Duration::from_secs(secs),
+        source: None,
     }
+}
+
+/// What the player should open for `track`. Demo tracks have no real source,
+/// so they play the first YouTube search result for "artist title" via
+/// yt-dlp. Step 3 replaces this with the provider's `resolve_playback`.
+pub fn playback_source(track: &Track) -> String {
+    track
+        .source
+        .clone()
+        .unwrap_or_else(|| format!("ytdl://ytsearch1:{} {}", track.artist, track.title))
 }
 
 pub fn library() -> Vec<Playlist> {

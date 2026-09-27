@@ -4,7 +4,7 @@ mod dispatch;
 pub mod queue;
 pub mod state;
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -15,24 +15,32 @@ use tokio::sync::mpsc;
 use crate::command::{self, Completion};
 use crate::config::Config;
 use crate::keymap::{KeyPress, KeyResult, Keymap};
+use crate::player::{LoadId, MpvOptions, MpvPlayer, Player, PlayerEvent};
 use crate::ui;
 use action::Action;
 use state::{AppState, Mode};
 
 const TICK: Duration = Duration::from_millis(250);
 
-/// Everything the main loop reacts to. Player and provider events join this
-/// enum in later steps so the loop stays a single `recv`.
+/// Everything the main loop reacts to. Provider events join this enum in a
+/// later step so the loop stays a single `recv`.
 #[derive(Debug)]
 pub enum AppEvent {
     Input(Event),
     Tick,
+    Player(PlayerEvent),
 }
 
 pub struct App {
     state: AppState,
     keymap: Keymap,
-    last_tick: Instant,
+    /// `None` when mpv couldn't be started or has died.
+    player: Option<Box<dyn Player>>,
+    /// The load whose events we act on; events from older loads are stale.
+    current_load: Option<LoadId>,
+    /// Tracks that failed to play in a row, to stop skipping through a queue
+    /// that can't play at all (e.g. no network).
+    failures: usize,
 }
 
 impl App {
@@ -40,17 +48,20 @@ impl App {
         Ok(Self {
             state: AppState::new(demo::library()),
             keymap: Keymap::new(&config.keys)?,
-            last_tick: Instant::now(),
+            player: None,
+            current_load: None,
+            failures: 0,
         })
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         let (tx, mut rx) = mpsc::unbounded_channel();
         spawn_input(tx.clone());
-        spawn_ticker(tx);
+        spawn_ticker(tx.clone());
 
         self.state
             .info("Welcome to Shellify. Press : for commands, q to quit.");
+        self.start_player(tx).await;
         while !self.state.should_quit {
             terminal.draw(|frame| ui::draw(frame, &mut self.state))?;
             let Some(event) = rx.recv().await else { break };
@@ -60,18 +71,40 @@ impl App {
                 self.handle(event);
             }
         }
+        if let Some(mut player) = self.player.take() {
+            player.shutdown().await;
+        }
         Ok(())
+    }
+
+    async fn start_player(&mut self, tx: mpsc::UnboundedSender<AppEvent>) {
+        let (player_tx, mut player_rx) = mpsc::unbounded_channel();
+        let options = MpvOptions {
+            volume: self.state.playback.volume,
+            ..Default::default()
+        };
+        match MpvPlayer::spawn(options, player_tx).await {
+            Ok(player) => self.player = Some(Box::new(player)),
+            Err(e) => {
+                tracing::error!("starting mpv: {e:#}");
+                self.state.error(format!("{e:#}"));
+            }
+        }
+        tokio::spawn(async move {
+            while let Some(event) = player_rx.recv().await {
+                if tx.send(AppEvent::Player(event)).is_err() {
+                    break;
+                }
+            }
+        });
     }
 
     fn handle(&mut self, event: AppEvent) {
         match event {
             AppEvent::Input(Event::Key(key)) if key.kind == KeyEventKind::Press => self.on_key(key),
             AppEvent::Input(_) => {} // resize etc.: the next draw picks it up
-            AppEvent::Tick => {
-                let now = Instant::now();
-                self.on_tick(now - self.last_tick);
-                self.last_tick = now;
-            }
+            AppEvent::Tick => {}     // periodic redraw
+            AppEvent::Player(event) => self.on_player_event(event),
         }
     }
 

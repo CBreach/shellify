@@ -19,7 +19,12 @@ pub enum Mode {
 #[derive(Debug)]
 pub struct Playback {
     pub paused: bool,
+    /// Waiting for the player to open the current track (yt-dlp can take a
+    /// few seconds to resolve a search).
+    pub loading: bool,
     pub position: Duration,
+    /// Length reported by the player; more accurate than track metadata.
+    pub duration: Option<Duration>,
     pub volume: u8,
 }
 
@@ -77,7 +82,9 @@ impl AppState {
             queue_state: ListState::default().with_selected(Some(0)),
             playback: Playback {
                 paused: false,
+                loading: false,
                 position: Duration::ZERO,
+                duration: None,
                 volume: 70,
             },
             command_line: LineEditor::default(),
