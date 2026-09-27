@@ -7,6 +7,8 @@ pub enum Action {
     Quit,
     /// Open the help overlay.
     Help,
+    /// Switch between the Music and Settings tabs.
+    View(View),
 
     // Playback
     TogglePause,
@@ -82,6 +84,13 @@ pub enum Focus {
     Next,
     Prev,
     Pane(Pane),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum View {
+    #[default]
+    Music,
+    Settings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

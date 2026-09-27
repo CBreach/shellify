@@ -6,6 +6,7 @@ pub mod layout;
 mod library;
 mod now_playing;
 mod queue;
+mod settings;
 mod text;
 pub mod theme;
 mod tracks;
@@ -18,7 +19,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph, Wrap};
 
-use crate::app::action::Pane;
+use crate::app::action::{Pane, View};
 use crate::app::state::AppState;
 use layout::Screen;
 use theme::Theme;
@@ -39,11 +40,16 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
     };
 
     header::draw(frame, areas.header, state, theme, areas.narrow);
-    for &(pane, area) in &areas.panes {
-        match pane {
-            Pane::Library => library::draw(frame, area, state, theme),
-            Pane::Tracks => tracks::draw(frame, area, state, theme),
-            Pane::Queue => queue::draw(frame, area, state, theme),
+    match state.view {
+        View::Settings => settings::draw(frame, areas.main, state, theme),
+        View::Music => {
+            for &(pane, area) in &areas.panes {
+                match pane {
+                    Pane::Library => library::draw(frame, area, state, theme),
+                    Pane::Tracks => tracks::draw(frame, area, state, theme),
+                    Pane::Queue => queue::draw(frame, area, state, theme),
+                }
+            }
         }
     }
     now_playing::draw(frame, areas.now_playing, state, theme);
@@ -151,7 +157,7 @@ mod tests {
         for (w, h) in [(160, 48), (100, 30), (80, 24), (60, 24), (40, 12)] {
             let screen = render(w, h, &theme);
             assert!(screen.contains("Now Playing"), "{w}x{h}:\n{screen}");
-            assert!(screen.contains("Shellify"), "{w}x{h}");
+            assert!(screen.contains("Music"), "{w}x{h}");
         }
     }
 
@@ -162,6 +168,30 @@ mod tests {
         assert!(!render(100, 30, &theme).contains("Library  Tracks  Queue"));
         for (w, h) in [(39, 24), (80, 11), (10, 3)] {
             assert!(render(w, h, &theme).contains("too small"), "{w}x{h}");
+        }
+    }
+
+    #[test]
+    fn settings_tab_renders_and_keeps_selection_visible() {
+        let theme = Theme::default();
+        let mut state = AppState::new(Vec::new());
+        state.view = View::Settings;
+        for (w, h) in [(100, 30), (60, 24), (40, 12)] {
+            state.settings_cursor = crate::app::settings::SettingRow::ALL.len() - 1;
+            let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+            terminal.draw(|f| draw(f, &mut state, &theme)).unwrap();
+            let screen: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|c| c.symbol())
+                .collect();
+            assert!(screen.contains("Settings"), "{w}x{h}");
+            assert!(
+                screen.contains("Reset appearance"),
+                "{w}x{h}: selected row scrolled off"
+            );
         }
     }
 

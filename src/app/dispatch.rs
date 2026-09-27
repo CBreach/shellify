@@ -1,17 +1,25 @@
 use std::time::Duration;
 
-use super::action::{Action, Focus, Pane, Seek, Select, Volume};
+use super::action::{Action, Focus, Pane, Seek, Select, View, Volume};
+use super::settings::SettingRow;
+use super::state::Mode;
 use super::{App, demo};
+use crate::config;
+use crate::ui::theme::{Theme, parse_color};
 
 impl App {
     pub(super) fn dispatch(&mut self, action: Action) {
         tracing::debug!(?action, "dispatch");
+        if self.state.view == View::Settings && self.settings_action(&action) {
+            return;
+        }
         match action {
             Action::Quit => self.state.should_quit = true,
             Action::Help => {
                 self.state.help_open = true;
                 self.state.help_scroll = 0;
             }
+            Action::View(view) => self.state.view = view,
 
             Action::TogglePause => {
                 if self.state.queue.current().is_some() {
@@ -93,6 +101,100 @@ impl App {
                 self.state.search_line.clear();
                 self.state.mode = super::state::Mode::Search;
             }
+        }
+    }
+
+    /// Navigation and editing keys mean something else on the Settings tab:
+    /// up/down move between rows, left/right (h/l, arrows) change the value,
+    /// Enter activates. Going through actions keeps user rebindings working.
+    /// Returns whether the action was handled here.
+    fn settings_action(&mut self, action: &Action) -> bool {
+        let rows = SettingRow::ALL.len();
+        let cursor = &mut self.state.settings_cursor;
+        match action {
+            Action::Select(Select::By(delta)) => {
+                *cursor = (*cursor as i64 + i64::from(*delta)).clamp(0, rows as i64 - 1) as usize;
+            }
+            Action::Select(Select::First) => *cursor = 0,
+            Action::Select(Select::Last) => *cursor = rows - 1,
+            Action::Focus(Focus::Next) | Action::Seek(Seek::Forward(_)) => self.step_setting(1),
+            Action::Focus(Focus::Prev) | Action::Seek(Seek::Back(_)) => self.step_setting(-1),
+            Action::Focus(Focus::Pane(_)) => {
+                // Jumping to a pane implies the Music tab; let it run there.
+                self.state.view = View::Music;
+                return false;
+            }
+            Action::PlaySelected => self.activate_setting(),
+            _ => return false,
+        }
+        true
+    }
+
+    fn step_setting(&mut self, delta: i32) {
+        let row = self.state.selected_setting();
+        if row != SettingRow::Reset {
+            self.state.appearance.step(row, delta);
+            self.apply_appearance();
+        }
+    }
+
+    /// Enter: type a value for color rows, reset on the Reset row, else step.
+    fn activate_setting(&mut self) {
+        let row = self.state.selected_setting();
+        match row {
+            SettingRow::Reset => {
+                self.state.appearance = Default::default();
+                self.apply_appearance();
+            }
+            _ if row.color_key().is_some() => {
+                let current = self
+                    .state
+                    .appearance
+                    .color_slot(row)
+                    .and_then(|slot| slot.clone())
+                    .unwrap_or_default();
+                self.state.status = None;
+                self.state.setting_line.set(current);
+                self.state.mode = Mode::EditSetting(row);
+            }
+            _ => self.step_setting(1),
+        }
+    }
+
+    /// Enter in the color prompt: empty means "use the preset's color".
+    pub(super) fn submit_setting(&mut self, row: SettingRow, text: &str) {
+        let text = text.trim();
+        let value = if text.is_empty() {
+            None
+        } else if let Err(e) = parse_color(text) {
+            self.state
+                .error(format!("{}: {e}", row.color_key().unwrap_or("color")));
+            return;
+        } else {
+            Some(text.to_string())
+        };
+        if let Some(slot) = self.state.appearance.color_slot(row) {
+            *slot = value;
+        }
+        self.apply_appearance();
+    }
+
+    /// Rebuilds the live theme from the Settings values and saves them.
+    fn apply_appearance(&mut self) {
+        let a = &self.state.appearance;
+        match Theme::from_config(&a.theme, a.color, a.icons) {
+            Ok(theme) => self.theme = theme,
+            Err(e) => {
+                self.state.error(e.to_string());
+                return;
+            }
+        }
+        match config::save_appearance(&self.config_path, a) {
+            Ok(()) => {
+                let label = self.state.config_path_label.clone();
+                self.state.info(format!("Saved to {label}"));
+            }
+            Err(e) => self.state.error(format!("couldn't save settings: {e:#}")),
         }
     }
 

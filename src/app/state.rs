@@ -2,8 +2,9 @@ use std::time::{Duration, Instant};
 
 use ratatui::widgets::{ListState, TableState};
 
-use crate::app::action::Pane;
+use crate::app::action::{Pane, View};
 use crate::app::queue::Queue;
+use crate::app::settings::{Appearance, SettingRow};
 use crate::command::LineEditor;
 use crate::keymap::HelpEntry;
 use crate::provider::{Playlist, Track};
@@ -15,6 +16,8 @@ pub enum Mode {
     Command,
     /// `/` prompt
     Search,
+    /// Typing a color value for a Settings row.
+    EditSetting(SettingRow),
 }
 
 #[derive(Debug)]
@@ -82,6 +85,17 @@ pub struct AppState {
     pub help_entries: Vec<HelpEntry>,
     /// Footer hints per pane, indexed like `Pane::ALL`.
     pub hints: [Vec<Hint>; 3],
+    pub settings_hints: Vec<Hint>,
+
+    pub view: View,
+    pub settings_cursor: usize,
+    /// What the Settings tab shows and saves; the theme is derived from it.
+    pub appearance: Appearance,
+    pub setting_line: LineEditor,
+    /// Where settings are saved, for display (`~/.config/...`).
+    pub config_path_label: String,
+    /// Header tab labels with their keys, e.g. `1 Music`.
+    pub tab_labels: [String; 2],
 }
 
 impl AppState {
@@ -113,6 +127,13 @@ impl AppState {
             help_scroll: 0,
             help_entries: Vec::new(),
             hints: Default::default(),
+            settings_hints: Vec::new(),
+            view: View::Music,
+            settings_cursor: 0,
+            appearance: Appearance::default(),
+            setting_line: LineEditor::default(),
+            config_path_label: String::new(),
+            tab_labels: ["Music".into(), "Settings".into()],
         }
     }
 
@@ -133,6 +154,9 @@ impl AppState {
     }
 
     pub fn hints_for_focus(&self) -> &[Hint] {
+        if self.view == View::Settings {
+            return &self.settings_hints;
+        }
         let i = Pane::ALL.iter().position(|p| *p == self.focus).unwrap_or(0);
         &self.hints[i]
     }
@@ -155,10 +179,15 @@ impl AppState {
     }
 
     /// Shows `tracks` in the middle pane and focuses it.
+    pub fn selected_setting(&self) -> SettingRow {
+        SettingRow::ALL[self.settings_cursor.min(SettingRow::ALL.len() - 1)]
+    }
+
     pub fn show_tracks(&mut self, title: String, tracks: Vec<Track>) {
         self.tracks_title = title;
         self.tracks = tracks;
         self.tracks_state.select(Some(0));
         self.focus = Pane::Tracks;
+        self.view = View::Music;
     }
 }

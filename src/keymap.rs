@@ -34,6 +34,8 @@ const DEFAULT_BINDINGS: &[(&str, &str)] = &[
     ("r", "repeat"),
     ("/", "search"),
     ("?", "help"),
+    ("1", "view music"),
+    ("2", "view settings"),
     ("q", "quit"),
 ];
 
@@ -184,6 +186,8 @@ fn describe(cmd: &str) -> String {
         "repeat" => "Cycle repeat (off/all/one)",
         "search" => "Search",
         "help" => "Show this help",
+        "view music" => "Music tab",
+        "view settings" => "Settings tab",
         "quit" => "Quit",
         other => return format!(":{other}"),
     };

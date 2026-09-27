@@ -2,8 +2,10 @@ pub mod action;
 mod demo;
 mod dispatch;
 pub mod queue;
+pub mod settings;
 pub mod state;
 
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -17,7 +19,8 @@ use crate::config::Config;
 use crate::keymap::{KeyPress, KeyResult, Keymap};
 use crate::ui;
 use crate::ui::theme::Theme;
-use action::Action;
+use action::{Action, View};
+use settings::Appearance;
 use state::{AppState, Hint, Mode};
 
 const TICK: Duration = Duration::from_millis(250);
@@ -34,19 +37,35 @@ pub struct App {
     state: AppState,
     keymap: Keymap,
     theme: Theme,
+    /// Where the Settings tab saves to.
+    config_path: PathBuf,
     last_tick: Instant,
 }
 
 impl App {
-    pub fn new(config: &Config) -> Result<Self> {
+    pub fn new(config: &Config, config_path: PathBuf) -> Result<Self> {
         let keymap = Keymap::new(&config.keys)?;
         let mut state = AppState::new(demo::library());
         state.help_entries = keymap.help_entries();
         state.hints = pane_hints(&keymap);
+        state.settings_hints = settings_hints(&keymap);
+        state.appearance = Appearance {
+            theme: config.theme.clone(),
+            color: config.ui.color,
+            icons: config.ui.icons,
+        };
+        state.config_path_label = display_path(&config_path);
+        state.tab_labels = [("view music", "Music"), ("view settings", "Settings")].map(
+            |(cmd, name)| match keymap.key_for(cmd) {
+                Some(key) => format!("{key} {name}"),
+                None => name.to_string(),
+            },
+        );
         Ok(Self {
             state,
             keymap,
             theme: Theme::from_config(&config.theme, config.ui.color, config.ui.icons)?,
+            config_path,
             last_tick: Instant::now(),
         })
     }
@@ -95,7 +114,7 @@ impl App {
         }
         match self.state.mode {
             Mode::Normal => self.on_normal_key(key),
-            Mode::Command | Mode::Search => self.on_prompt_key(key),
+            Mode::Command | Mode::Search | Mode::EditSetting(_) => self.on_prompt_key(key),
         }
     }
 
@@ -131,6 +150,7 @@ impl App {
             KeyCode::Esc => {
                 self.keymap.reset();
                 self.state.status = None;
+                self.state.view = View::Music;
             }
             _ => match self.keymap.press(KeyPress::from_event(key)) {
                 KeyResult::Action(action) => self.dispatch(action),
@@ -142,11 +162,11 @@ impl App {
     fn on_prompt_key(&mut self, key: KeyEvent) {
         // Hints (e.g. completion candidates) are only valid until the next key.
         self.state.status = None;
-        let searching = self.state.mode == Mode::Search;
-        let line = if searching {
-            &mut self.state.search_line
-        } else {
-            &mut self.state.command_line
+        let mode = self.state.mode;
+        let line = match mode {
+            Mode::Search => &mut self.state.search_line,
+            Mode::EditSetting(_) => &mut self.state.setting_line,
+            Mode::Normal | Mode::Command => &mut self.state.command_line,
         };
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
@@ -166,7 +186,7 @@ impl App {
             KeyCode::Char('a') if ctrl => line.home(),
             KeyCode::Char('e') if ctrl => line.end(),
             KeyCode::Char('u') if ctrl => line.clear(),
-            KeyCode::Tab if !searching => match command::complete(line.text()) {
+            KeyCode::Tab if mode == Mode::Command => match command::complete(line.text()) {
                 Completion::Replace(text) => line.set(text),
                 Completion::Candidates(names) => self.state.info(names.join("  ")),
                 Completion::None => {}
@@ -175,15 +195,15 @@ impl App {
             KeyCode::Enter => {
                 let text = line.submit();
                 self.state.mode = Mode::Normal;
-                if searching {
-                    if !text.trim().is_empty() {
-                        self.dispatch(Action::Search(text.trim().to_string()));
-                    }
-                } else if !text.trim().is_empty() {
-                    match command::parse(&text) {
+                let query = text.trim();
+                match mode {
+                    Mode::EditSetting(row) => self.submit_setting(row, &text),
+                    _ if query.is_empty() => {}
+                    Mode::Search => self.dispatch(Action::Search(query.to_string())),
+                    _ => match command::parse(query) {
                         Ok(action) => self.dispatch(action),
                         Err(e) => self.state.error(e),
-                    }
+                    },
                 }
             }
             _ => {}
@@ -226,6 +246,27 @@ fn pane_hints(keymap: &Keymap) -> [Vec<Hint>; 3] {
             ("help", "help"),
         ]),
     ]
+}
+
+fn settings_hints(keymap: &Keymap) -> Vec<Hint> {
+    [
+        ("select +1", "move"),
+        ("focus next", "change"),
+        ("play", "edit"),
+        ("view music", "music"),
+    ]
+    .iter()
+    .filter_map(|&(cmd, label)| keymap.key_for(cmd).map(|key| Hint { key, label }))
+    .collect()
+}
+
+/// `/Users/me/.config/x` -> `~/.config/x`, for status messages.
+fn display_path(path: &Path) -> String {
+    let home = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf());
+    match home.and_then(|h| path.strip_prefix(h).ok().map(Path::to_path_buf)) {
+        Some(rel) => format!("~/{}", rel.display()),
+        None => path.display().to_string(),
+    }
 }
 
 fn spawn_input(tx: mpsc::UnboundedSender<AppEvent>) {

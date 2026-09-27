@@ -178,7 +178,7 @@ mod tests {
         assert_eq!(complete("q"), Completion::Replace("qu".into()));
         assert_eq!(
             complete("se"),
-            Completion::Candidates(vec!["search", "seek", "select"])
+            Completion::Candidates(vec!["search", "seek", "select", "settings"])
         );
     }
 

@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
     // Load config before touching the terminal so errors print normally.
     let config_path = cli.config.unwrap_or_else(config::default_path);
     let config = Config::load(&config_path)?;
-    let app = App::new(&config)?;
+    let app = App::new(&config, config_path)?;
 
     let terminal = ratatui::init();
     let result = app.run(terminal).await;

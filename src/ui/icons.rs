@@ -16,6 +16,16 @@ pub enum IconPack {
 }
 
 impl IconPack {
+    pub const ALL: [IconPack; 3] = [IconPack::Unicode, IconPack::Ascii, IconPack::Nerd];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Unicode => "unicode",
+            Self::Ascii => "ascii",
+            Self::Nerd => "nerd",
+        }
+    }
+
     pub fn icons(self) -> &'static Icons {
         match self {
             Self::Unicode => &UNICODE,
@@ -42,6 +52,8 @@ pub struct Icons {
     pub ellipsis: &'static str,
     /// Separator in titles and hint bars.
     pub sep: &'static str,
+    /// Color sample in the Settings tab.
+    pub swatch: &'static str,
     pub border: border::Set<'static>,
     /// Border for the focused pane when there is no color to mark it.
     pub border_focus: border::Set<'static>,
@@ -59,6 +71,7 @@ const UNICODE: Icons = Icons {
     knob: "●",
     ellipsis: "…",
     sep: "·",
+    swatch: "███",
     border: border::ROUNDED,
     border_focus: border::THICK,
 };
@@ -86,6 +99,7 @@ const ASCII: Icons = Icons {
     knob: "o",
     ellipsis: "...",
     sep: "|",
+    swatch: "###",
     border: ASCII_BORDER,
     border_focus: border::Set {
         top_left: "#",
@@ -132,6 +146,7 @@ mod tests {
             i.knob,
             i.ellipsis,
             i.sep,
+            i.swatch,
             border.top_left,
             border.horizontal_top,
             border.vertical_left,

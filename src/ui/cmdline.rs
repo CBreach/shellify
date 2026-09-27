@@ -11,8 +11,12 @@ use crate::ui::theme::Theme;
 /// The bottom line: the `:`/`/` prompt while typing, otherwise mode + status.
 pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     let (prefix, editor) = match state.mode {
-        Mode::Command => (":", &state.command_line),
-        Mode::Search => ("/", &state.search_line),
+        Mode::Command => (":".to_string(), &state.command_line),
+        Mode::Search => ("/".to_string(), &state.search_line),
+        Mode::EditSetting(row) => (
+            format!("{} = ", row.color_key().unwrap_or("value")),
+            &state.setting_line,
+        ),
         Mode::Normal => {
             let mode = Span::styled(" NORMAL ", theme.selection());
             // Errors get a symbol as well as color, so they read in monochrome too.
@@ -41,7 +45,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
         frame.render_widget(hint, area);
     }
     // Cursor sits after the prefix; one cell per char is fine for typical input.
-    let x = area.x + 1 + editor.cursor() as u16;
+    let x = area.x + prefix.width() as u16 + editor.cursor() as u16;
     frame.set_cursor_position(Position::new(x.min(area.right().saturating_sub(1)), area.y));
 }
 

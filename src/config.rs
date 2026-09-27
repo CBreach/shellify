@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use directories::BaseDirs;
 use serde::Deserialize;
+use toml_edit::DocumentMut;
 
+use crate::app::settings::Appearance;
 use crate::ui::icons::IconPack;
 use crate::ui::theme::{ColorMode, ThemeConfig};
 
@@ -47,4 +49,130 @@ pub fn default_path() -> PathBuf {
         .or_else(|| BaseDirs::new().map(|d| d.home_dir().join(".config")))
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("shellify").join("config.toml")
+}
+
+/// Writes the Settings tab's choices into `[theme]` and `[ui]`, leaving the
+/// rest of the file (key bindings, comments, formatting) untouched. Values
+/// equal to the default are removed rather than written out.
+pub fn save_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    let mut doc: DocumentMut = text
+        .parse()
+        .with_context(|| format!("parsing {}", path.display()))?;
+
+    let t = &appearance.theme;
+    let theme_values = [
+        ("preset", t.preset.as_deref()),
+        ("accent", t.accent.as_deref()),
+        ("text", t.text.as_deref()),
+        ("muted", t.muted.as_deref()),
+        ("error", t.error.as_deref()),
+        ("selection_fg", t.selection_fg.as_deref()),
+    ];
+    let ui_values = [
+        (
+            "color",
+            (appearance.color != ColorMode::default()).then(|| appearance.color.label()),
+        ),
+        (
+            "icons",
+            (appearance.icons != IconPack::default()).then(|| appearance.icons.label()),
+        ),
+    ];
+    set_table(&mut doc, "theme", &theme_values);
+    set_table(&mut doc, "ui", &ui_values);
+
+    // Write to a temp file and rename, so a crash never leaves a half-written config.
+    let dir = path.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, doc.to_string()).with_context(|| format!("writing {}", tmp.display()))?;
+    std::fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))?;
+    Ok(())
+}
+
+/// Sets or removes each key in `[name]`, dropping the table if it ends up empty.
+fn set_table(doc: &mut DocumentMut, name: &str, values: &[(&str, Option<&str>)]) {
+    let item = doc.entry(name).or_insert(toml_edit::table());
+    let Some(table) = item.as_table_mut() else {
+        return;
+    };
+    for &(key, value) in values {
+        match value {
+            Some(v) => table[key] = toml_edit::value(v),
+            None => {
+                table.remove(key);
+            }
+        }
+    }
+    if table.is_empty() {
+        doc.remove(name);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_preserves_keys_and_comments_and_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let original =
+            "# my bindings\n[keys]\n\"ctrl-n\" = \"next\" # skip\n\n[theme]\naccent = \"red\"\n";
+        std::fs::write(&path, original).unwrap();
+
+        let mut appearance = Appearance {
+            theme: ThemeConfig {
+                preset: Some("nord".into()),
+                muted: Some("#445566".into()),
+                ..Default::default()
+            },
+            icons: IconPack::Ascii,
+            ..Default::default()
+        };
+        save_appearance(&path, &appearance).unwrap();
+
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("# my bindings"));
+        assert!(saved.contains("\"ctrl-n\" = \"next\" # skip"));
+        assert!(
+            !saved.contains("accent"),
+            "cleared override is removed:\n{saved}"
+        );
+        assert!(
+            !saved.contains("color ="),
+            "default color mode is not written"
+        );
+
+        let loaded = Config::load(&path).unwrap();
+        assert_eq!(loaded.theme, appearance.theme);
+        assert_eq!(loaded.ui.icons, IconPack::Ascii);
+        assert_eq!(loaded.keys["ctrl-n"], "next");
+
+        // Back to defaults: the [theme] and [ui] tables disappear entirely.
+        appearance = Appearance::default();
+        save_appearance(&path, &appearance).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !saved.contains("[theme]") && !saved.contains("[ui]"),
+            "{saved}"
+        );
+    }
+
+    #[test]
+    fn save_creates_missing_file_and_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested/shellify/config.toml");
+        let appearance = Appearance {
+            color: ColorMode::Never,
+            ..Default::default()
+        };
+        save_appearance(&path, &appearance).unwrap();
+        assert_eq!(Config::load(&path).unwrap().ui.color, ColorMode::Never);
+    }
 }

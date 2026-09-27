@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::app::action::{Action, Focus, Pane, RepeatMode, Seek, Select, Volume};
+use crate::app::action::{Action, Focus, Pane, RepeatMode, Seek, Select, View, Volume};
 
 pub struct CommandInfo {
     pub name: &'static str,
@@ -44,7 +44,9 @@ pub const COMMANDS: &[CommandInfo] = &[
         "Seek to a time or by an offset",
     ),
     cmd("select", "select <+N|-N|top|bottom>", "Move the selection"),
+    cmd("settings", "settings", "Open the Settings tab"),
     cmd("shuffle", "shuffle", "Shuffle upcoming tracks"),
+    cmd("view", "view <music|settings>", "Switch tab"),
     cmd(
         "volume",
         "vol, volume <0-100|+N|-N>",
@@ -76,6 +78,12 @@ pub fn parse(input: &str) -> Result<Action, String> {
         "" => Err("empty command".into()),
         "q" | "quit" => no_arg(Action::Quit),
         "help" => no_arg(Action::Help),
+        "settings" => no_arg(Action::View(View::Settings)),
+        "view" => match arg {
+            "music" => Ok(Action::View(View::Music)),
+            "settings" => Ok(Action::View(View::Settings)),
+            _ => Err(format!("view: expected music or settings, got {arg:?}")),
+        },
         "pause" => no_arg(Action::TogglePause),
         "next" => no_arg(Action::Next),
         "prev" => no_arg(Action::Prev),
@@ -228,6 +236,9 @@ mod tests {
             parse("focus queue"),
             Ok(Action::Focus(Focus::Pane(Pane::Queue)))
         );
+        assert_eq!(parse("settings"), Ok(Action::View(View::Settings)));
+        assert_eq!(parse("view music"), Ok(Action::View(View::Music)));
+        assert!(parse("view mixtape").is_err());
     }
 
     #[test]

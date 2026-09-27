@@ -51,6 +51,7 @@ cargo run --release
 | `r` | Cycle repeat (off → all → one) |
 | `/` | Search |
 | `?` | Help: every key and command |
+| `1` / `2` | Music / Settings tab |
 | `:` | Command mode |
 | `q` | Quit |
 
@@ -70,6 +71,7 @@ Press `:` then type a command. Tab completes command names, and ↑/↓ browse h
 | `:shuffle`, `:clear` | Shuffle / clear the queue |
 | `:queue`, `:focus <pane>` | Jump to a pane |
 | `:help` | Show the help overlay |
+| `:settings`, `:view <music\|settings>` | Switch tab |
 | `:q` | Quit |
 
 ## Configuration
@@ -82,6 +84,10 @@ Shellify reads `~/.config/shellify/config.toml` (or `$XDG_CONFIG_HOME/shellify/c
 "ctrl-p" = "prev"
 "s" = ""          # empty string unbinds the key
 ```
+
+### Settings tab
+
+Press `2` (or `:settings`) to open **Settings**. There you can pick a theme preset, change any color, switch icon pack and set the color mode, and you see the result as you go. Use `j`/`k` to move between rows and `h`/`l` (or ←/→) to change a value. Press `Enter` on a color to type a name or `#hex`. Press `1` or `Esc` to go back to the music. Every change is saved to your `config.toml`, and your key bindings and comments there are left untouched.
 
 ### Themes
 

@@ -9,7 +9,7 @@ use super::icons::{IconPack, Icons};
 /// The `[theme]` table in config.toml: an optional preset plus per-color
 /// overrides. Colors are names (`cyan`, `light-blue`), `#rrggbb` or an
 /// ANSI index (`208`).
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeConfig {
     pub preset: Option<String>,
@@ -32,6 +32,16 @@ pub enum ColorMode {
 }
 
 impl ColorMode {
+    pub const ALL: [ColorMode; 3] = [ColorMode::Auto, ColorMode::Always, ColorMode::Never];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Always => "always",
+            Self::Never => "never",
+        }
+    }
+
     /// Resolves the mode against the environment (see <https://no-color.org>).
     pub fn enabled(self) -> bool {
         let no_color = std::env::var("NO_COLOR").ok();
@@ -185,7 +195,7 @@ impl Default for Theme {
     }
 }
 
-fn parse_color(value: &str) -> Result<Color> {
+pub fn parse_color(value: &str) -> Result<Color> {
     // Accept "light_blue" / "Light Blue" as well as ratatui's "light-blue".
     let normalized = value.trim().to_lowercase().replace(['_', ' '], "-");
     match Color::from_str(&normalized) {

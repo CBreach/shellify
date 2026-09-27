@@ -24,6 +24,8 @@ pub enum Screen {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Areas {
     pub header: Rect,
+    /// Everything between the header and Now Playing (the Settings tab uses it whole).
+    pub main: Rect,
     /// The panes on screen, left to right.
     pub panes: Vec<(Pane, Rect)>,
     pub now_playing: Rect,
@@ -67,6 +69,7 @@ pub fn compute(area: Rect, focus: Pane) -> Screen {
 
     Screen::Normal(Areas {
         header,
+        main,
         panes,
         now_playing,
         cmdline,
