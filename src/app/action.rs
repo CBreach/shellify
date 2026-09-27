@@ -27,6 +27,8 @@ pub enum Action {
     Search(String),
     /// Open the `/` search prompt.
     OpenSearch,
+    /// Play a URL or local file directly (anything mpv/yt-dlp can open).
+    Open(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

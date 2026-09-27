@@ -1,11 +1,37 @@
+use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+use directories::BaseDirs;
 
 use super::action::{Action, Focus, Pane, Seek, Select, Volume};
 use super::{App, demo};
 use crate::player::{EndReason, PlayerEvent};
+use crate::provider::Track;
 
 /// Consecutive playback failures after which we stop instead of skipping on.
 const MAX_FAILURES: usize = 3;
+
+/// Turns an `:open` argument into something mpv can open: URLs pass through,
+/// paths get `~` expanded, are made absolute and must exist.
+fn resolve_open_target(target: &str) -> Result<String, String> {
+    if target.contains("://") {
+        return Ok(target.to_string());
+    }
+    let mut path = match target.strip_prefix("~/") {
+        Some(rest) => BaseDirs::new()
+            .map(|d| d.home_dir().join(rest))
+            .ok_or("can't find your home directory")?,
+        None => PathBuf::from(target),
+    };
+    if path.is_relative() {
+        let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+        path = cwd.join(path);
+    }
+    if !path.exists() {
+        return Err(format!("open: no such file: {}", path.display()));
+    }
+    Ok(path.to_string_lossy().into_owned())
+}
 
 impl App {
     pub(super) fn dispatch(&mut self, action: Action) {
@@ -101,6 +127,7 @@ impl App {
                 self.state.search_line.clear();
                 self.state.mode = super::state::Mode::Search;
             }
+            Action::Open(target) => self.open(&target),
         }
     }
 
@@ -145,6 +172,30 @@ impl App {
                 self.start_current();
             }
         }
+    }
+
+    /// Queues a URL or local file and plays it right away.
+    fn open(&mut self, target: &str) {
+        let source = match resolve_open_target(target) {
+            Ok(source) => source,
+            Err(e) => return self.state.error(e),
+        };
+        let title = if source.contains("://") {
+            source.clone()
+        } else {
+            Path::new(&source)
+                .file_name()
+                .map_or_else(|| source.clone(), |n| n.to_string_lossy().into_owned())
+        };
+        self.state.queue.push(Track {
+            id: format!("open:{source}"),
+            title,
+            artist: String::new(),
+            duration: Duration::ZERO,
+            source: Some(source),
+        });
+        self.state.queue.jump(self.state.queue.tracks().len() - 1);
+        self.start_current();
     }
 
     fn add_selected(&mut self) {
@@ -421,6 +472,29 @@ mod tests {
             take(&calls),
             ["pause true", "seek 90", "seek 224", "volume 50"]
         );
+    }
+
+    #[test]
+    fn open_plays_urls_and_existing_files() {
+        let (mut app, calls) = app();
+        app.dispatch(Action::Open("https://example.com/stream.mp3".into()));
+        assert_eq!(take(&calls), ["load https://example.com/stream.mp3"]);
+
+        // Any existing file works for resolving; cargo runs tests from the crate root.
+        app.dispatch(Action::Open("Cargo.toml".into()));
+        let expected = std::env::current_dir().unwrap().join("Cargo.toml");
+        assert_eq!(take(&calls), [format!("load {}", expected.display())]);
+        assert_eq!(app.state.queue.current().unwrap().title, "Cargo.toml");
+        assert_eq!(app.state.queue.tracks().len(), 2);
+    }
+
+    #[test]
+    fn open_rejects_missing_files() {
+        let (mut app, calls) = app();
+        app.dispatch(Action::Open("no/such/file.mp3".into()));
+        assert!(take(&calls).is_empty());
+        let status = app.state.status.as_ref().unwrap();
+        assert!(status.text.contains("no such file"));
     }
 
     #[test]
