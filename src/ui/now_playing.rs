@@ -1,16 +1,17 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, LineGauge, Paragraph};
 
-use super::{ACCENT, fmt_duration};
+use super::fmt_duration;
+use super::theme::Theme;
 use crate::app::state::AppState;
 
-pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(Style::new().fg(Color::DarkGray))
+        .border_style(Style::new().fg(theme.muted))
         .title(" Now Playing ");
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -24,12 +25,12 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
         playback.volume,
         state.queue.repeat.label()
     ))
-    .style(Style::new().fg(Color::DarkGray))
+    .style(Style::new().fg(theme.muted))
     .right_aligned();
 
     let Some(track) = state.queue.current() else {
         frame.render_widget(
-            Paragraph::new("Nothing playing").style(Style::new().fg(Color::DarkGray)),
+            Paragraph::new("Nothing playing").style(Style::new().fg(theme.muted)),
             info,
         );
         frame.render_widget(settings, info);
@@ -38,7 +39,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let icon = if playback.paused { "⏸ " } else { "▶ " };
     let title = Line::from(vec![
-        Span::styled(icon, Style::new().fg(ACCENT)),
+        Span::styled(icon, Style::new().fg(theme.accent)),
         Span::styled(
             track.title.clone(),
             Style::new().add_modifier(Modifier::BOLD),
@@ -61,7 +62,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
             fmt_duration(playback.position),
             fmt_duration(track.duration)
         ))
-        .filled_style(Style::new().fg(ACCENT))
-        .unfilled_style(Style::new().fg(Color::DarkGray));
+        .filled_style(Style::new().fg(theme.accent))
+        .unfilled_style(Style::new().fg(theme.muted));
     frame.render_widget(gauge, progress);
 }

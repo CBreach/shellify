@@ -2,21 +2,27 @@ mod cmdline;
 mod library;
 mod now_playing;
 mod queue;
+pub mod theme;
 mod tracks;
 
 use std::time::Duration;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, BorderType};
 
 use crate::app::action::Pane;
 use crate::app::state::AppState;
+use theme::Theme;
 
-const ACCENT: Color = Color::Cyan;
+pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
+    // Base style so `text` applies everywhere widgets don't override it.
+    frame.render_widget(
+        Block::new().style(Style::new().fg(theme.text)),
+        frame.area(),
+    );
 
-pub fn draw(frame: &mut Frame, state: &mut AppState) {
     let [main, now_playing, cmdline] = Layout::vertical([
         Constraint::Min(5),
         Constraint::Length(4),
@@ -31,20 +37,20 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     ])
     .areas(main);
 
-    library::draw(frame, library, state);
-    tracks::draw(frame, tracks, state);
-    queue::draw(frame, queue, state);
-    now_playing::draw(frame, now_playing, state);
-    cmdline::draw(frame, cmdline, state);
+    library::draw(frame, library, state, theme);
+    tracks::draw(frame, tracks, state, theme);
+    queue::draw(frame, queue, state, theme);
+    now_playing::draw(frame, now_playing, state, theme);
+    cmdline::draw(frame, cmdline, state, theme);
 }
 
 /// A bordered pane, highlighted when focused.
-fn pane_block(title: String, pane: Pane, state: &AppState) -> Block<'static> {
+fn pane_block(title: String, pane: Pane, state: &AppState, theme: &Theme) -> Block<'static> {
     let focused = state.focus == pane;
     let border = if focused {
-        Style::new().fg(ACCENT)
+        Style::new().fg(theme.accent)
     } else {
-        Style::new().fg(Color::DarkGray)
+        Style::new().fg(theme.muted)
     };
     Block::bordered()
         .border_type(BorderType::Rounded)
@@ -52,11 +58,11 @@ fn pane_block(title: String, pane: Pane, state: &AppState) -> Block<'static> {
         .title(format!(" {title} "))
 }
 
-fn highlight_style(pane: Pane, state: &AppState) -> Style {
+fn highlight_style(pane: Pane, state: &AppState, theme: &Theme) -> Style {
     if state.focus == pane {
         Style::new()
-            .fg(Color::Black)
-            .bg(ACCENT)
+            .fg(theme.selection_fg)
+            .bg(theme.accent)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::new().add_modifier(Modifier::REVERSED)

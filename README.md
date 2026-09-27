@@ -79,6 +79,20 @@ Shellify reads `~/.config/shellify/config.toml` (or `$XDG_CONFIG_HOME/shellify/c
 "s" = ""          # empty string unbinds the key
 ```
 
+### Themes
+
+Pick a preset (`default`, `nord`, `gruvbox`, `catppuccin`) and optionally override individual colors. A color can be a name (`cyan`, `light-blue`), `#rrggbb` or an ANSI index (`0`–`255`).
+
+```toml
+[theme]
+preset = "catppuccin"
+accent = "#f5c2e7"      # focused borders, selection, progress bar
+# text = "reset"        # main text (reset = your terminal's default)
+# muted = "dark-gray"   # unfocused borders, secondary info
+# error = "red"
+# selection_fg = "black"  # text drawn on the accent color
+```
+
 ## Your accounts & privacy
 
 Shellify signs in to *your* accounts and ships with no credentials. Anything you provide (cookies, tokens, API client IDs) stays on your machine: in your OS keychain or your user config/cache directories, never in the project folder.

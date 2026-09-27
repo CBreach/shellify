@@ -16,6 +16,7 @@ use crate::command::{self, Completion};
 use crate::config::Config;
 use crate::keymap::{KeyPress, KeyResult, Keymap};
 use crate::ui;
+use crate::ui::theme::Theme;
 use action::Action;
 use state::{AppState, Mode};
 
@@ -32,6 +33,7 @@ pub enum AppEvent {
 pub struct App {
     state: AppState,
     keymap: Keymap,
+    theme: Theme,
     last_tick: Instant,
 }
 
@@ -40,6 +42,7 @@ impl App {
         Ok(Self {
             state: AppState::new(demo::library()),
             keymap: Keymap::new(&config.keys)?,
+            theme: Theme::from_config(&config.theme)?,
             last_tick: Instant::now(),
         })
     }
@@ -52,7 +55,7 @@ impl App {
         self.state
             .info("Welcome to Shellify. Press : for commands, q to quit.");
         while !self.state.should_quit {
-            terminal.draw(|frame| ui::draw(frame, &mut self.state))?;
+            terminal.draw(|frame| ui::draw(frame, &mut self.state, &self.theme))?;
             let Some(event) = rx.recv().await else { break };
             self.handle(event);
             // Apply anything else already queued before redrawing.

@@ -5,12 +5,15 @@ use anyhow::{Context, Result};
 use directories::BaseDirs;
 use serde::Deserialize;
 
+use crate::ui::theme::ThemeConfig;
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     /// Key binding overrides: key spec -> command, e.g. `"ctrl-n" = "next"`.
     /// An empty command unbinds the key.
     pub keys: HashMap<String, String>,
+    pub theme: ThemeConfig,
 }
 
 impl Config {
