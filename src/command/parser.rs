@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use crate::app::action::{
-    Action, Focus, Pane, RepeatMode, Resize, Seek, Select, ThemeCommand, View, Volume,
+    Action, Focus, Pane, RepeatMode, Resize, Seek, Select, ThemeCommand, View, VizCommand, Volume,
 };
+use crate::app::visualizer::VizStyle;
 
 pub struct CommandInfo {
     pub name: &'static str,
@@ -61,6 +62,11 @@ pub const COMMANDS: &[CommandInfo] = &[
     ),
     cmd("view", "view <music|settings>", "Switch tab"),
     cmd(
+        "visualizer",
+        "visualizer [on|off|next|bars|mirror|wave|dots]",
+        "Toggle the visualizer, or pick its style",
+    ),
+    cmd(
         "volume",
         "vol, volume <0-100|+N|-N>",
         "Set or change the volume",
@@ -94,6 +100,7 @@ pub fn parse(input: &str) -> Result<Action, String> {
         "settings" => no_arg(Action::View(View::Settings)),
         "resize" => parse_resize(arg).map(Action::Resize),
         "theme" => parse_theme(arg).map(Action::Theme),
+        "visualizer" | "viz" => parse_visualizer(arg).map(Action::Visualizer),
         "view" => match arg {
             "music" => Ok(Action::View(View::Music)),
             "settings" => Ok(Action::View(View::Settings)),
@@ -159,6 +166,18 @@ fn parse_volume(arg: &str) -> Result<Volume, String> {
             Ok(v) if v <= 100 => Ok(Volume::Set(v)),
             _ => Err(err()),
         }
+    }
+}
+
+fn parse_visualizer(arg: &str) -> Result<VizCommand, String> {
+    match arg {
+        "" | "toggle" => Ok(VizCommand::Toggle),
+        "on" => Ok(VizCommand::On),
+        "off" => Ok(VizCommand::Off),
+        "next" => Ok(VizCommand::NextStyle),
+        _ => VizStyle::parse(arg).map(VizCommand::Style).ok_or_else(|| {
+            format!("visualizer: expected on, off, next, bars, mirror, wave or dots, got {arg:?}")
+        }),
     }
 }
 
@@ -318,6 +337,16 @@ mod tests {
             Ok(Action::Theme(ThemeCommand::Reload))
         );
         assert!(parse("theme").is_err());
+        assert_eq!(
+            parse("visualizer"),
+            Ok(Action::Visualizer(VizCommand::Toggle))
+        );
+        assert_eq!(parse("viz off"), Ok(Action::Visualizer(VizCommand::Off)));
+        assert_eq!(
+            parse("visualizer mirror"),
+            Ok(Action::Visualizer(VizCommand::Style(VizStyle::Mirror)))
+        );
+        assert!(parse("visualizer disco").is_err());
         assert!(parse("theme import").is_err());
         assert_eq!(
             parse("resize library 30"),

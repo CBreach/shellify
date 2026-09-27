@@ -3,7 +3,9 @@ use std::time::Duration;
 
 use directories::BaseDirs;
 
-use super::action::{Action, Focus, Pane, Resize, Seek, Select, ThemeCommand, View, Volume};
+use super::action::{
+    Action, Focus, Pane, Resize, Seek, Select, ThemeCommand, View, VizCommand, Volume,
+};
 use super::settings::SettingRow;
 use super::state::{Mode, StatusLevel};
 use super::{App, demo, set_mouse_capture};
@@ -54,6 +56,7 @@ impl App {
             Action::View(view) => self.state.view = view,
             Action::Resize(resize) => self.resize(resize),
             Action::Theme(command) => self.theme_command(command),
+            Action::Visualizer(command) => self.visualizer_command(command),
 
             Action::TogglePause => {
                 if self.state.queue.current().is_some() {
@@ -223,6 +226,35 @@ impl App {
         self.apply_appearance();
     }
 
+    /// `:visualizer [on|off|next|<style>]`, `v`, `V`.
+    fn visualizer_command(&mut self, command: VizCommand) {
+        let a = &mut self.state.appearance;
+        match command {
+            VizCommand::Toggle => a.visualizer = !a.visualizer,
+            VizCommand::On => a.visualizer = true,
+            VizCommand::Off => a.visualizer = false,
+            VizCommand::NextStyle => {
+                a.visualizer_style = a.visualizer_style.next();
+                a.visualizer = true;
+            }
+            VizCommand::Style(style) => {
+                a.visualizer_style = style;
+                a.visualizer = true;
+            }
+        }
+        self.apply_appearance();
+        if self.status_is_error() {
+            return;
+        }
+        let a = &self.state.appearance;
+        let msg = if a.visualizer {
+            format!("Visualizer on: {}", a.visualizer_style.label())
+        } else {
+            "Visualizer off".to_string()
+        };
+        self.state.info(msg);
+    }
+
     /// `:theme <name>`, `:theme import <file>`, `:theme reload`.
     fn theme_command(&mut self, command: ThemeCommand) {
         match command {
@@ -352,6 +384,11 @@ impl App {
         if a.mouse != self.mouse_captured {
             self.mouse_captured = a.mouse;
             set_mouse_capture(a.mouse);
+        }
+        // Only meter loudness while something wants it.
+        let visualizer = a.visualizer;
+        if let Some(player) = self.player.as_mut() {
+            player.set_metering(visualizer);
         }
         // The pointer setting (or mouse) may just have been switched off.
         self.sync_pointer();
@@ -529,6 +566,7 @@ impl App {
             PlayerEvent::Position(pos) => self.state.playback.position = pos,
             PlayerEvent::Duration(d) => self.state.playback.duration = Some(d),
             PlayerEvent::Paused(p) => self.state.playback.paused = p,
+            PlayerEvent::Levels { rms_db, peak_db } => self.state.visualizer.meter(rms_db, peak_db),
             PlayerEvent::Exited(msg) => {
                 tracing::error!("player exited: {msg}");
                 self.player = None;
@@ -611,6 +649,9 @@ mod tests {
         fn stop(&mut self) {
             self.calls.lock().unwrap().push("stop".into());
         }
+        fn set_metering(&mut self, on: bool) {
+            self.calls.lock().unwrap().push(format!("metering {on}"));
+        }
         async fn shutdown(&mut self) {}
     }
 
@@ -621,6 +662,25 @@ mod tests {
         let calls = player.calls.clone();
         app.player = Some(Box::new(player));
         (app, calls)
+    }
+
+    #[test]
+    fn visualizer_toggles_mpv_metering_and_levels_drive_it() {
+        let (mut app, calls) = app();
+        app.dispatch(Action::Visualizer(VizCommand::On));
+        app.dispatch(Action::Visualizer(VizCommand::Off));
+        let calls = calls.lock().unwrap().clone();
+        assert!(calls.contains(&"metering true".to_string()), "{calls:?}");
+        assert_eq!(calls.last().map(String::as_str), Some("metering false"));
+
+        app.on_player_event(PlayerEvent::Levels {
+            rms_db: -12.0,
+            peak_db: -6.0,
+        });
+        for _ in 0..10 {
+            app.state.visualizer.tick(1.0 / 30.0, true);
+        }
+        assert!(app.state.visualizer.level > 0.5);
     }
 
     /// Plays the "Liked Songs" demo playlist from its first track.

@@ -10,6 +10,7 @@ mod settings;
 mod text;
 pub mod theme;
 mod tracks;
+mod visualizer;
 
 use std::time::Duration;
 
@@ -32,7 +33,12 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
     );
 
     state.hits = HitMap::default();
-    let areas = match layout::compute(frame.area(), state.focus, state.appearance.panes) {
+    let areas = match layout::compute(
+        frame.area(),
+        state.focus,
+        state.appearance.panes,
+        state.appearance.visualizer,
+    ) {
         Screen::Normal(areas) => areas,
         Screen::TooSmall => {
             draw_too_small(frame, theme);

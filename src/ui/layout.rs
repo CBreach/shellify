@@ -12,6 +12,11 @@ use crate::app::action::Pane;
 
 pub const MIN_WIDTH: u16 = 40;
 pub const MIN_HEIGHT: u16 = 12;
+/// Now Playing's height without the visualizer (border + two lines).
+const NOW_PLAYING_HEIGHT: u16 = 4;
+/// Rows the visualizer adds to Now Playing, and the window height it needs.
+pub const VIZ_ROWS: u16 = 5;
+pub const VIZ_MIN_HEIGHT: u16 = 26;
 const NARROW_BELOW: u16 = 80;
 /// Narrowest a side pane may get, in columns, however it's resized.
 const MIN_SIDE: u16 = 14;
@@ -120,14 +125,21 @@ pub struct Areas {
     pub narrow: bool,
 }
 
-pub fn compute(area: Rect, focus: Pane, sizes: PaneSizes) -> Screen {
+/// `visualizer` asks for room for it in Now Playing; it only gets it when the
+/// window is tall enough (`VIZ_MIN_HEIGHT`).
+pub fn compute(area: Rect, focus: Pane, sizes: PaneSizes, visualizer: bool) -> Screen {
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         return Screen::TooSmall;
     }
+    let viz_rows = if visualizer && area.height >= VIZ_MIN_HEIGHT {
+        VIZ_ROWS
+    } else {
+        0
+    };
     let [header, main, now_playing, cmdline] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(4),
-        Constraint::Length(4),
+        Constraint::Length(NOW_PLAYING_HEIGHT + viz_rows),
         Constraint::Length(1),
     ])
     .areas(area);
@@ -161,7 +173,7 @@ mod tests {
     use super::*;
 
     fn areas(w: u16, h: u16, focus: Pane) -> Areas {
-        match compute(Rect::new(0, 0, w, h), focus, PaneSizes::default()) {
+        match compute(Rect::new(0, 0, w, h), focus, PaneSizes::default(), false) {
             Screen::Normal(a) => a,
             Screen::TooSmall => panic!("{w}x{h} should fit"),
         }
@@ -193,12 +205,32 @@ mod tests {
             library: 40,
             queue: 30,
         };
-        let Screen::Normal(a) = compute(Rect::new(0, 0, 100, 30), Pane::Tracks, wide) else {
+        let Screen::Normal(a) = compute(Rect::new(0, 0, 100, 30), Pane::Tracks, wide, false) else {
             panic!("fits")
         };
         assert_eq!(
             a.panes.iter().map(|(_, r)| r.width).collect::<Vec<_>>(),
             [40, 30, 30]
+        );
+    }
+
+    #[test]
+    fn visualizer_gets_rows_only_in_tall_windows() {
+        let np = |h: u16, viz: bool| match compute(
+            Rect::new(0, 0, 100, h),
+            Pane::Tracks,
+            PaneSizes::default(),
+            viz,
+        ) {
+            Screen::Normal(a) => a.now_playing.height,
+            Screen::TooSmall => panic!("fits"),
+        };
+        assert_eq!(np(30, false), NOW_PLAYING_HEIGHT);
+        assert_eq!(np(30, true), NOW_PLAYING_HEIGHT + VIZ_ROWS);
+        assert_eq!(
+            np(VIZ_MIN_HEIGHT - 1, true),
+            NOW_PLAYING_HEIGHT,
+            "too short: hidden"
         );
     }
 
@@ -209,7 +241,7 @@ mod tests {
             library: 45,
             queue: 45,
         };
-        let Screen::Normal(a) = compute(Rect::new(0, 0, 80, 24), Pane::Tracks, big) else {
+        let Screen::Normal(a) = compute(Rect::new(0, 0, 80, 24), Pane::Tracks, big, false) else {
             panic!("fits")
         };
         assert!(a.panes[1].1.width >= MIN_TRACKS);
@@ -252,7 +284,8 @@ mod tests {
             compute(
                 Rect::new(0, 0, MIN_WIDTH - 1, 30),
                 Pane::Tracks,
-                PaneSizes::default()
+                PaneSizes::default(),
+                false
             ),
             Screen::TooSmall
         );
@@ -260,7 +293,8 @@ mod tests {
             compute(
                 Rect::new(0, 0, 120, MIN_HEIGHT - 1),
                 Pane::Tracks,
-                PaneSizes::default()
+                PaneSizes::default(),
+                false
             ),
             Screen::TooSmall
         );

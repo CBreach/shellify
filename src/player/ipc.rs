@@ -7,6 +7,14 @@ use serde_json::{Value, json};
 pub const OBSERVE_TIME_POS: u64 = 1;
 pub const OBSERVE_DURATION: u64 = 2;
 pub const OBSERVE_PAUSE: u64 = 3;
+pub const OBSERVE_LEVELS: u64 = 4;
+
+/// A loudness meter for the visualizer: FFmpeg's `astats` passes audio
+/// through untouched and reports overall RMS and peak (dBFS) per frame as
+/// metadata, which mpv exposes as the `af-metadata/<label>` property.
+pub const METER_LABEL: &str = "@shellify-meter";
+pub const METER_FILTER: &str = "@shellify-meter:lavfi=[astats=metadata=1:reset=1:measure_overall=RMS_level+Peak_level:measure_perchannel=none]";
+pub const METER_PROPERTY: &str = "af-metadata/shellify-meter";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
@@ -17,6 +25,8 @@ pub enum Command {
     Stop,
     Quit,
     Observe(u64, &'static str),
+    AddAudioFilter(&'static str),
+    RemoveAudioFilter(&'static str),
 }
 
 impl Command {
@@ -30,6 +40,8 @@ impl Command {
             Self::Stop => json!(["stop"]),
             Self::Quit => json!(["quit"]),
             Self::Observe(id, name) => json!(["observe_property", id, name]),
+            Self::AddAudioFilter(spec) => json!(["af", "add", spec]),
+            Self::RemoveAudioFilter(label) => json!(["af", "remove", label]),
         };
         let mut line = json!({ "command": args, "request_id": request_id }).to_string();
         line.push('\n');
@@ -108,6 +120,27 @@ impl Incoming {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn encodes_meter_filter_commands() {
+        let add: serde_json::Value =
+            serde_json::from_str(&Command::AddAudioFilter(METER_FILTER).encode(7)).unwrap();
+        assert_eq!(add["command"][0], "af");
+        assert_eq!(add["command"][1], "add");
+        assert!(
+            add["command"][2]
+                .as_str()
+                .unwrap()
+                .starts_with("@shellify-meter:lavfi=[astats")
+        );
+        let remove: serde_json::Value =
+            serde_json::from_str(&Command::RemoveAudioFilter(METER_LABEL).encode(8)).unwrap();
+        assert_eq!(
+            remove["command"],
+            json!(["af", "remove", "@shellify-meter"])
+        );
+        assert_eq!(METER_PROPERTY, format!("af-metadata/{}", &METER_LABEL[1..]));
+    }
+
     use super::*;
 
     fn decode(line: &str) -> Value {

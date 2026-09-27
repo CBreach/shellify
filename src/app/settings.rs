@@ -1,6 +1,7 @@
 //! The Settings tab's model: which rows exist and how each value cycles.
 //! Rendering lives in `ui/settings.rs`; saving in `config::save_appearance`.
 
+use crate::app::visualizer::VizStyle;
 use crate::ui::icons::IconPack;
 use crate::ui::layout::PaneSizes;
 use crate::ui::theme::{ColorMode, ThemeConfig};
@@ -16,6 +17,9 @@ pub struct Appearance {
     pub mouse: bool,
     /// Ask the terminal for a resize pointer over pane borders (OSC 22).
     pub resize_cursor: bool,
+    /// Show the audio visualizer in Now Playing.
+    pub visualizer: bool,
+    pub visualizer_style: VizStyle,
     /// Side pane widths, set by dragging pane borders or `:resize`.
     pub panes: PaneSizes,
 }
@@ -30,6 +34,8 @@ pub enum SettingRow {
     SelectionFg,
     Icons,
     Color,
+    Visualizer,
+    VisualizerStyle,
     Mouse,
     ResizeCursor,
     Reset,
@@ -56,7 +62,7 @@ pub const NAMED_COLORS: &[&str] = &[
 ];
 
 impl SettingRow {
-    pub const ALL: [SettingRow; 11] = [
+    pub const ALL: [SettingRow; 13] = [
         SettingRow::Preset,
         SettingRow::Accent,
         SettingRow::Text,
@@ -65,6 +71,8 @@ impl SettingRow {
         SettingRow::SelectionFg,
         SettingRow::Icons,
         SettingRow::Color,
+        SettingRow::Visualizer,
+        SettingRow::VisualizerStyle,
         SettingRow::Mouse,
         SettingRow::ResizeCursor,
         SettingRow::Reset,
@@ -80,6 +88,8 @@ impl SettingRow {
             Self::SelectionFg => "Selection text",
             Self::Icons => "Icons",
             Self::Color => "Color",
+            Self::Visualizer => "Visualizer",
+            Self::VisualizerStyle => "Style",
             Self::Mouse => "Mouse",
             Self::ResizeCursor => "Resize cursor",
             Self::Reset => "Reset all settings to defaults",
@@ -126,6 +136,8 @@ impl Appearance {
             SettingRow::Icons => self.icons.label().into(),
             SettingRow::Color => self.color.label().into(),
             SettingRow::Mouse => if self.mouse { "on" } else { "off" }.into(),
+            SettingRow::Visualizer => if self.visualizer { "on" } else { "off" }.into(),
+            SettingRow::VisualizerStyle => self.visualizer_style.label().into(),
             SettingRow::ResizeCursor => if self.resize_cursor { "on" } else { "off" }.into(),
             SettingRow::Reset => String::new(),
         }
@@ -154,6 +166,10 @@ impl Appearance {
             }
             SettingRow::Icons => self.icons = cycle(&IconPack::ALL, &self.icons, delta),
             SettingRow::Color => self.color = cycle(&ColorMode::ALL, &self.color, delta),
+            SettingRow::Visualizer => self.visualizer = !self.visualizer,
+            SettingRow::VisualizerStyle => {
+                self.visualizer_style = cycle(&VizStyle::ALL, &self.visualizer_style, delta)
+            }
             SettingRow::Mouse => self.mouse = !self.mouse,
             SettingRow::ResizeCursor => self.resize_cursor = !self.resize_cursor,
             SettingRow::Reset => {}
@@ -226,6 +242,11 @@ mod tests {
         assert_eq!(a.value_label(SettingRow::Mouse), "on");
         a.step(SettingRow::Mouse, -1);
         assert!(!a.mouse);
+        a.step(SettingRow::Visualizer, 1);
+        assert!(a.visualizer);
+        a.step(SettingRow::VisualizerStyle, -1);
+        assert_eq!(a.visualizer_style, VizStyle::Dots);
+        assert_eq!(a.value_label(SettingRow::VisualizerStyle), "dots");
         a.step(SettingRow::ResizeCursor, 1);
         assert!(a.resize_cursor);
         assert_eq!(a.value_label(SettingRow::ResizeCursor), "on");

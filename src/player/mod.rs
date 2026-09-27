@@ -27,6 +27,11 @@ pub enum PlayerEvent {
     Position(Duration),
     Duration(Duration),
     Paused(bool),
+    /// A loudness reading for the visualizer (dBFS; `-inf` is silence).
+    Levels {
+        rms_db: f32,
+        peak_db: f32,
+    },
     /// The backend died; no further events will arrive.
     Exited(String),
 }
@@ -55,6 +60,8 @@ pub trait Player: Send {
     /// Volume in percent, 0-100.
     fn set_volume(&mut self, volume: u8);
     fn stop(&mut self);
+    /// Turns the loudness meter (and so `PlayerEvent::Levels`) on or off.
+    fn set_metering(&mut self, on: bool);
     /// Stops the backend and cleans up after it.
     async fn shutdown(&mut self);
 }

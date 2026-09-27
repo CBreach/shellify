@@ -6,6 +6,7 @@ use ratatui::widgets::{ListState, TableState};
 use crate::app::action::{Pane, View};
 use crate::app::queue::Queue;
 use crate::app::settings::{Appearance, SettingRow};
+use crate::app::visualizer::Visualizer;
 use crate::command::LineEditor;
 use crate::keymap::HelpEntry;
 use crate::provider::{Playlist, Track};
@@ -159,6 +160,8 @@ pub struct AppState {
     pub hits: HitMap,
     /// Custom themes from `themes/` next to the config.
     pub user_themes: Vec<UserTheme>,
+    /// The visualizer's animation state (drawn when the setting is on).
+    pub visualizer: Visualizer,
     /// The pane border under the mouse pointer, highlighted as draggable.
     pub divider_hover: Option<Pane>,
     /// The pane border being dragged right now.
@@ -205,6 +208,7 @@ impl AppState {
             tab_labels: ["Music".into(), "Settings".into()],
             hits: HitMap::default(),
             user_themes: Vec::new(),
+            visualizer: Visualizer::default(),
             divider_hover: None,
             divider_drag: None,
         }

@@ -6,6 +6,7 @@ pub(crate) mod pointer;
 pub mod queue;
 pub mod settings;
 pub mod state;
+pub mod visualizer;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -17,7 +18,7 @@ use crossterm::event::{
 };
 use futures::StreamExt;
 use ratatui::DefaultTerminal;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::command::{self, Completion};
 use crate::config::Config;
@@ -33,6 +34,7 @@ use action::{Action, View};
 use settings::Appearance;
 use state::{AppState, Hint, Mode};
 
+const FRAME: Duration = Duration::from_millis(33);
 const TICK: Duration = Duration::from_millis(250);
 
 /// Everything the main loop reacts to. Provider events join this enum in a
@@ -41,6 +43,8 @@ const TICK: Duration = Duration::from_millis(250);
 pub enum AppEvent {
     Input(Event),
     Tick,
+    /// Animation frame (~30fps), only sent while the visualizer is moving.
+    Frame,
     Player(PlayerEvent),
 }
 
@@ -63,6 +67,9 @@ pub struct App {
     pointer_resize: bool,
     /// Last left click, for double-click detection.
     last_click: Option<(ratatui::layout::Position, Instant)>,
+    /// Turns the animation clock on and off (`None` in tests: no clock).
+    animate: Option<watch::Sender<bool>>,
+    last_frame: Option<Instant>,
 }
 
 impl App {
@@ -78,6 +85,8 @@ impl App {
             icons: config.ui.icons,
             mouse: config.ui.mouse,
             resize_cursor: config.ui.resize_cursor,
+            visualizer: config.ui.visualizer,
+            visualizer_style: config.ui.visualizer_style,
             panes: PaneSizes {
                 library: config
                     .ui
@@ -123,6 +132,8 @@ impl App {
             mouse_captured: false,
             pointer_resize: false,
             last_click: None,
+            animate: None,
+            last_frame: None,
         })
     }
 
@@ -130,6 +141,9 @@ impl App {
         let (tx, mut rx) = mpsc::unbounded_channel();
         spawn_input(tx.clone());
         spawn_ticker(tx.clone());
+        let (animate, animate_rx) = watch::channel(false);
+        spawn_animator(tx.clone(), animate_rx);
+        self.animate = Some(animate);
 
         if self.state.appearance.mouse {
             self.mouse_captured = true;
@@ -164,8 +178,38 @@ impl App {
             while let Ok(event) = rx.try_recv() {
                 self.handle(event);
             }
+            self.sync_animation();
         }
         Ok(())
+    }
+
+    /// Whether audio is actually coming out right now.
+    fn is_playing(&self) -> bool {
+        let p = &self.state.playback;
+        self.state.queue.current().is_some() && !p.paused && !p.loading
+    }
+
+    /// Runs the animation clock only while the visualizer is shown and
+    /// moving, so an idle Shellify doesn't redraw 30 times a second.
+    fn sync_animation(&mut self) {
+        let want = self.state.appearance.visualizer
+            && (self.is_playing() || !self.state.visualizer.at_rest());
+        if !want {
+            self.last_frame = None;
+        }
+        if let Some(animate) = &self.animate {
+            animate.send_if_modified(|on| std::mem::replace(on, want) != want);
+        }
+    }
+
+    fn on_frame(&mut self) {
+        let now = Instant::now();
+        let dt = self
+            .last_frame
+            .map_or(FRAME, |last| now.duration_since(last));
+        self.last_frame = Some(now);
+        let playing = self.is_playing();
+        self.state.visualizer.tick(dt.as_secs_f32(), playing);
     }
 
     async fn start_player(&mut self, tx: mpsc::UnboundedSender<AppEvent>) {
@@ -175,7 +219,10 @@ impl App {
             ..Default::default()
         };
         match MpvPlayer::spawn(options, player_tx).await {
-            Ok(player) => {
+            Ok(mut player) => {
+                if self.state.appearance.visualizer {
+                    player.set_metering(true);
+                }
                 self.player = Some(Box::new(player));
                 // mpv needs yt-dlp for YouTube sources, and only says so per track.
                 if !player::on_path("yt-dlp") {
@@ -209,6 +256,7 @@ impl App {
                     self.state.status = None;
                 }
             }
+            AppEvent::Frame => self.on_frame(),
             AppEvent::Player(event) => self.on_player_event(event),
         }
     }
@@ -414,6 +462,35 @@ fn spawn_input(tx: mpsc::UnboundedSender<AppEvent>) {
                 Err(e) => {
                     tracing::error!("terminal input error: {e}");
                     break;
+                }
+            }
+        }
+    });
+}
+
+/// Sends `AppEvent::Frame` at ~30fps while `on` is true, and sleeps (no
+/// wakeups at all) while it's false.
+fn spawn_animator(tx: mpsc::UnboundedSender<AppEvent>, mut on: watch::Receiver<bool>) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(FRAME);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            if !*on.borrow_and_update() {
+                if on.changed().await.is_err() {
+                    break;
+                }
+                continue;
+            }
+            tokio::select! {
+                _ = interval.tick() => {
+                    if tx.send(AppEvent::Frame).is_err() {
+                        break;
+                    }
+                }
+                changed = on.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
                 }
             }
         }
