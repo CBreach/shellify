@@ -17,6 +17,10 @@ Shellify is a public, open-source project meant for anyone to clone and use with
 - Test fixtures must use obviously fake values.
 - Before committing, check `git diff --cached` for anything secret-looking. `.gitignore` also blocks common credential filenames as a backstop.
 
+## Commits
+
+Commit (and push) after each small, working feature. **Do not add `Co-Authored-By` or any other AI/tool attribution to commit messages or PR descriptions.**
+
 ## Commands
 
 ```sh
@@ -35,6 +39,7 @@ Smoke-testing the TUI headlessly: run it in tmux (`tmux new-session -d -s t -x 1
 ## Architecture
 
 - **Everything funnels through one `Action` enum** (`src/app/action.rs`). Normal-mode keybindings (`src/keymap.rs`) and `:commands` (`src/command/parser.rs`) both produce `Action`s, which `App::dispatch` (`src/app/dispatch.rs`) applies. Every key binding, default or user-defined, is stored as a *command string* and parsed by the same parser. To add a feature, add an `Action` variant, a command in `parse` (plus `COMMANDS` for Tab completion), and optionally a default key in `DEFAULT_BINDINGS`. `:` (open the prompt) and Ctrl-C (quit) are hard-wired in `src/app/mod.rs` and can't be rebound.
+- **Discoverability is derived from the keymap:** the `?` help overlay (`Keymap::help_entries`, plus `COMMANDS` metadata in `src/command/parser.rs`) and the per-pane footer hints (`pane_hints` in `src/app/mod.rs`) read the live bindings, so user overrides show up automatically. Label new default bindings in `describe()` in `src/keymap.rs`. Status messages fade after a few seconds (`Status::expired`) so the hints return.
 - **Modes:** Normal, Command (`:`) and Search (`/`). Both prompts use `command::LineEditor` (history, char-aware cursor). While a prompt is open, the status message is shown right-aligned as a hint and cleared on the next key.
 - **UI** (`src/ui/`) only draws: it takes `&mut AppState` because ratatui's `ListState`/`TableState` (scroll offsets) live in the state.
 - **Single process, single tokio runtime, one `mpsc` event channel.** Terminal input, player events (mpv property changes such as `time-pos`, `pause`, EOF) and async provider results all arrive as `AppEvent`s on the same channel; the app updates state and re-renders at about 30fps. Never block the event loop; long provider calls run as spawned tasks that report back through the channel.

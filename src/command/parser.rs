@@ -2,11 +2,59 @@ use std::time::Duration;
 
 use crate::app::action::{Action, Focus, Pane, RepeatMode, Seek, Select, Volume};
 
-/// Command names offered by tab completion, in the order they are listed.
-pub const COMMANDS: &[&str] = &[
-    "add", "clear", "focus", "next", "pause", "play", "prev", "queue", "quit", "repeat", "search",
-    "seek", "select", "shuffle", "volume",
+pub struct CommandInfo {
+    pub name: &'static str,
+    pub usage: &'static str,
+    pub about: &'static str,
+}
+
+/// Every command, sorted by name. Drives tab completion and the help overlay.
+pub const COMMANDS: &[CommandInfo] = &[
+    cmd("add", "add", "Add the selection to the queue"),
+    cmd("clear", "clear", "Clear the queue"),
+    cmd(
+        "focus",
+        "focus <next|prev|library|tracks|queue>",
+        "Move focus to a pane",
+    ),
+    cmd("help", "help", "Show this help"),
+    cmd("next", "next", "Next track"),
+    cmd("pause", "pause", "Toggle pause"),
+    cmd(
+        "play",
+        "play [query]",
+        "Play the selection, or search and play",
+    ),
+    cmd(
+        "prev",
+        "prev",
+        "Previous track (or restart the current one)",
+    ),
+    cmd("queue", "queue", "Focus the queue"),
+    cmd("quit", "q, quit", "Quit Shellify"),
+    cmd(
+        "repeat",
+        "repeat [off|all|one]",
+        "Set repeat mode, or cycle it",
+    ),
+    cmd("search", "search [query]", "Search, or open the / prompt"),
+    cmd(
+        "seek",
+        "seek <1:30|90|+10|-10>",
+        "Seek to a time or by an offset",
+    ),
+    cmd("select", "select <+N|-N|top|bottom>", "Move the selection"),
+    cmd("shuffle", "shuffle", "Shuffle upcoming tracks"),
+    cmd(
+        "volume",
+        "vol, volume <0-100|+N|-N>",
+        "Set or change the volume",
+    ),
 ];
+
+const fn cmd(name: &'static str, usage: &'static str, about: &'static str) -> CommandInfo {
+    CommandInfo { name, usage, about }
+}
 
 /// Parses a command-mode line (without the leading `:`) into an [`Action`].
 pub fn parse(input: &str) -> Result<Action, String> {
@@ -27,6 +75,7 @@ pub fn parse(input: &str) -> Result<Action, String> {
     match name {
         "" => Err("empty command".into()),
         "q" | "quit" => no_arg(Action::Quit),
+        "help" => no_arg(Action::Help),
         "pause" => no_arg(Action::TogglePause),
         "next" => no_arg(Action::Next),
         "prev" => no_arg(Action::Prev),
@@ -190,6 +239,6 @@ mod tests {
 
     #[test]
     fn completion_list_is_sorted() {
-        assert!(COMMANDS.windows(2).all(|w| w[0] < w[1]));
+        assert!(COMMANDS.windows(2).all(|w| w[0].name < w[1].name));
     }
 }

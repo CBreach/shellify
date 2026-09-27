@@ -5,6 +5,8 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     Quit,
+    /// Open the help overlay.
+    Help,
 
     // Playback
     TogglePause,

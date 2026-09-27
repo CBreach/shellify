@@ -1,4 +1,5 @@
 mod cmdline;
+mod help;
 mod library;
 mod now_playing;
 mod queue;
@@ -44,6 +45,9 @@ pub fn draw(frame: &mut Frame, state: &mut AppState, theme: &Theme) {
     queue::draw(frame, queue, state, theme);
     now_playing::draw(frame, now_playing, state, theme);
     cmdline::draw(frame, cmdline, state, theme);
+    if state.help_open {
+        help::draw(frame, state, theme);
+    }
 }
 
 /// A bordered pane, highlighted when focused.

@@ -8,6 +8,10 @@ impl App {
         tracing::debug!(?action, "dispatch");
         match action {
             Action::Quit => self.state.should_quit = true,
+            Action::Help => {
+                self.state.help_open = true;
+                self.state.help_scroll = 0;
+            }
 
             Action::TogglePause => {
                 if self.state.queue.current().is_some() {

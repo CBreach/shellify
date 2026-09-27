@@ -18,7 +18,7 @@ use crate::keymap::{KeyPress, KeyResult, Keymap};
 use crate::ui;
 use crate::ui::theme::Theme;
 use action::Action;
-use state::{AppState, Mode};
+use state::{AppState, Hint, Mode};
 
 const TICK: Duration = Duration::from_millis(250);
 
@@ -39,9 +39,13 @@ pub struct App {
 
 impl App {
     pub fn new(config: &Config) -> Result<Self> {
+        let keymap = Keymap::new(&config.keys)?;
+        let mut state = AppState::new(demo::library());
+        state.help_entries = keymap.help_entries();
+        state.hints = pane_hints(&keymap);
         Ok(Self {
-            state: AppState::new(demo::library()),
-            keymap: Keymap::new(&config.keys)?,
+            state,
+            keymap,
             theme: Theme::from_config(&config.theme)?,
             last_tick: Instant::now(),
         })
@@ -52,8 +56,7 @@ impl App {
         spawn_input(tx.clone());
         spawn_ticker(tx);
 
-        self.state
-            .info("Welcome to Shellify. Press : for commands, q to quit.");
+        self.state.info("Welcome to Shellify · press ? for help");
         while !self.state.should_quit {
             terminal.draw(|frame| ui::draw(frame, &mut self.state, &self.theme))?;
             let Some(event) = rx.recv().await else { break };
@@ -71,6 +74,9 @@ impl App {
             AppEvent::Input(Event::Key(key)) if key.kind == KeyEventKind::Press => self.on_key(key),
             AppEvent::Input(_) => {} // resize etc.: the next draw picks it up
             AppEvent::Tick => {
+                if self.state.status.as_ref().is_some_and(|s| s.expired()) {
+                    self.state.status = None;
+                }
                 let now = Instant::now();
                 self.on_tick(now - self.last_tick);
                 self.last_tick = now;
@@ -83,9 +89,34 @@ impl App {
             self.state.should_quit = true;
             return;
         }
+        if self.state.help_open {
+            self.on_help_key(key);
+            return;
+        }
         match self.state.mode {
             Mode::Normal => self.on_normal_key(key),
             Mode::Command | Mode::Search => self.on_prompt_key(key),
+        }
+    }
+
+    /// The help overlay captures input: scroll it or close it.
+    fn on_help_key(&mut self, key: KeyEvent) {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let scroll = &mut self.state.help_scroll;
+        match key.code {
+            KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q' | '?') => {
+                self.state.help_open = false;
+            }
+            KeyCode::Char('j') | KeyCode::Down => *scroll = scroll.saturating_add(1),
+            KeyCode::Char('k') | KeyCode::Up => *scroll = scroll.saturating_sub(1),
+            KeyCode::Char('d') if ctrl => *scroll = scroll.saturating_add(10),
+            KeyCode::Char('u') if ctrl => *scroll = scroll.saturating_sub(10),
+            KeyCode::PageDown => *scroll = scroll.saturating_add(10),
+            KeyCode::PageUp => *scroll = scroll.saturating_sub(10),
+            KeyCode::Char('g') | KeyCode::Home => *scroll = 0,
+            // Clamped to the content height when drawn.
+            KeyCode::Char('G') | KeyCode::End => *scroll = u16::MAX,
+            _ => {}
         }
     }
 
@@ -158,6 +189,43 @@ impl App {
             _ => {}
         }
     }
+}
+
+/// Footer hints for each pane (indexed like `Pane::ALL`), using whatever keys
+/// the user actually has bound. Unbound commands are left out.
+fn pane_hints(keymap: &Keymap) -> [Vec<Hint>; 3] {
+    let build = |items: &[(&str, &'static str)]| -> Vec<Hint> {
+        let mut hints: Vec<Hint> = items
+            .iter()
+            .filter_map(|&(cmd, label)| keymap.key_for(cmd).map(|key| Hint { key, label }))
+            .collect();
+        hints.push(Hint {
+            key: ":".into(),
+            label: "command",
+        });
+        hints
+    };
+    [
+        build(&[
+            ("play", "open"),
+            ("add", "add all"),
+            ("search", "search"),
+            ("help", "help"),
+        ]),
+        build(&[
+            ("play", "play"),
+            ("add", "add"),
+            ("pause", "pause"),
+            ("search", "search"),
+            ("help", "help"),
+        ]),
+        build(&[
+            ("play", "play"),
+            ("next", "next"),
+            ("shuffle", "shuffle"),
+            ("help", "help"),
+        ]),
+    ]
 }
 
 fn spawn_input(tx: mpsc::UnboundedSender<AppEvent>) {

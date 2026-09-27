@@ -33,6 +33,7 @@ const DEFAULT_BINDINGS: &[(&str, &str)] = &[
     ("s", "shuffle"),
     ("r", "repeat"),
     ("/", "search"),
+    ("?", "help"),
     ("q", "quit"),
 ];
 
@@ -66,7 +67,16 @@ pub enum KeyResult {
 
 pub struct Keymap {
     bindings: HashMap<Vec<KeyPress>, Action>,
+    /// `(keys, spec, command)` in definition order, for help and hints.
+    listing: Vec<(Vec<KeyPress>, String, String)>,
     pending: Vec<KeyPress>,
+}
+
+/// One line of the help overlay: all keys bound to a command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HelpEntry {
+    pub keys: String,
+    pub description: String,
 }
 
 impl Keymap {
@@ -74,21 +84,58 @@ impl Keymap {
     /// An empty command removes the binding.
     pub fn new(overrides: &HashMap<String, String>) -> Result<Self> {
         let mut bindings = HashMap::new();
+        let mut listing: Vec<(Vec<KeyPress>, String, String)> = Vec::new();
         let defaults = DEFAULT_BINDINGS.iter().copied();
-        let user = overrides.iter().map(|(k, c)| (k.as_str(), c.as_str()));
+        // Sorted so help lists user bindings in a stable order.
+        let mut user: Vec<_> = overrides.iter().collect();
+        user.sort();
+        let user = user.into_iter().map(|(k, c)| (k.as_str(), c.as_str()));
         for (spec, cmd) in defaults.chain(user) {
             let keys = parse_key_spec(spec).map_err(|e| anyhow!("key {spec:?}: {e}"))?;
-            if cmd.trim().is_empty() {
+            let cmd = cmd.trim();
+            if cmd.is_empty() {
                 bindings.remove(&keys);
-            } else {
-                let action = command::parse(cmd).map_err(|e| anyhow!("key {spec:?}: {e}"))?;
-                bindings.insert(keys, action);
+                listing.retain(|(k, _, _)| *k != keys);
+                continue;
+            }
+            let action = command::parse(cmd).map_err(|e| anyhow!("key {spec:?}: {e}"))?;
+            bindings.insert(keys.clone(), action);
+            match listing.iter_mut().find(|(k, _, _)| *k == keys) {
+                Some(entry) => entry.2 = cmd.to_string(),
+                None => listing.push((keys, spec.to_string(), cmd.to_string())),
             }
         }
         Ok(Self {
             bindings,
+            listing,
             pending: Vec::new(),
         })
+    }
+
+    /// Bindings grouped by command, in definition order: `j ↓  Move down`.
+    pub fn help_entries(&self) -> Vec<HelpEntry> {
+        let mut entries: Vec<(String, Vec<String>)> = Vec::new();
+        for (_, spec, cmd) in &self.listing {
+            match entries.iter_mut().find(|(c, _)| c == cmd) {
+                Some((_, keys)) => keys.push(pretty_spec(spec)),
+                None => entries.push((cmd.clone(), vec![pretty_spec(spec)])),
+            }
+        }
+        entries
+            .into_iter()
+            .map(|(cmd, keys)| HelpEntry {
+                keys: keys.join(" "),
+                description: describe(&cmd),
+            })
+            .collect()
+    }
+
+    /// The first key bound to `cmd`, for footer hints.
+    pub fn key_for(&self, cmd: &str) -> Option<String> {
+        self.listing
+            .iter()
+            .find(|(_, _, c)| c == cmd)
+            .map(|(_, spec, _)| pretty_spec(spec))
     }
 
     pub fn press(&mut self, key: KeyPress) -> KeyResult {
@@ -113,6 +160,73 @@ impl Keymap {
     pub fn reset(&mut self) {
         self.pending.clear();
     }
+}
+
+/// Human-readable label for a bound command; unknown ones show as `:cmd`.
+fn describe(cmd: &str) -> String {
+    let label = match cmd {
+        "select +1" => "Move down",
+        "select -1" => "Move up",
+        "select top" => "Jump to top",
+        "select bottom" => "Jump to bottom",
+        "focus next" => "Next pane",
+        "focus prev" => "Previous pane",
+        "play" => "Play selection / open playlist",
+        "pause" => "Play / pause",
+        "next" => "Next track",
+        "prev" => "Previous track",
+        "seek +5" => "Seek forward 5s",
+        "seek -5" => "Seek back 5s",
+        "vol +5" => "Volume up",
+        "vol -5" => "Volume down",
+        "add" => "Add selection to queue",
+        "shuffle" => "Shuffle queue",
+        "repeat" => "Cycle repeat (off/all/one)",
+        "search" => "Search",
+        "help" => "Show this help",
+        "quit" => "Quit",
+        other => return format!(":{other}"),
+    };
+    label.to_string()
+}
+
+/// Display form of a key spec: `"down"` → `↓`, `"ctrl-d"` → `C-d`.
+fn pretty_spec(spec: &str) -> String {
+    spec.split_whitespace()
+        .map(|token| {
+            let mut out = String::new();
+            let mut rest = token;
+            while let Some((prefix, tail)) = rest.split_once('-').filter(|(_, t)| !t.is_empty()) {
+                out.push_str(match prefix {
+                    "ctrl" | "c" => "C-",
+                    "alt" | "a" | "m" => "M-",
+                    "shift" | "s" => "S-",
+                    other => other,
+                });
+                rest = tail;
+            }
+            out.push_str(match rest {
+                "down" => "↓",
+                "up" => "↑",
+                "left" => "←",
+                "right" => "→",
+                "space" => "Space",
+                "enter" => "Enter",
+                "tab" => "Tab",
+                "backtab" => "S-Tab",
+                "esc" => "Esc",
+                "backspace" => "Bksp",
+                "delete" => "Del",
+                "pageup" => "PgUp",
+                "pagedown" => "PgDn",
+                "home" => "Home",
+                "end" => "End",
+                other => other,
+            });
+            out
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Parses `"j"`, `"gg"`, `"G"`, `"space"`, `"ctrl-d"` or `"g g"` into a key sequence.
@@ -240,6 +354,39 @@ mod tests {
         assert!(Keymap::new(&bad_cmd).is_err());
         let bad_key = HashMap::from([("hyper-x".to_string(), "next".to_string())]);
         assert!(Keymap::new(&bad_key).is_err());
+    }
+
+    #[test]
+    fn help_groups_keys_by_command() {
+        let km = Keymap::new(&HashMap::new()).unwrap();
+        let entries = km.help_entries();
+        let down = entries
+            .iter()
+            .find(|e| e.description == "Move down")
+            .unwrap();
+        assert_eq!(down.keys, "j ↓");
+        assert_eq!(km.key_for("help").as_deref(), Some("?"));
+    }
+
+    #[test]
+    fn help_reflects_overrides() {
+        let overrides = HashMap::from([
+            ("ctrl-n".to_string(), "next".to_string()),
+            ("n".to_string(), String::new()),
+            ("x".to_string(), "vol 50".to_string()),
+        ]);
+        let km = Keymap::new(&overrides).unwrap();
+        let entries = km.help_entries();
+        let next = entries
+            .iter()
+            .find(|e| e.description == "Next track")
+            .unwrap();
+        assert_eq!(next.keys, "C-n");
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.keys == "x" && e.description == ":vol 50")
+        );
     }
 
     #[test]

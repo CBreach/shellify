@@ -48,6 +48,7 @@ cargo run --release
 | `s` | Shuffle queue |
 | `r` | Cycle repeat (off → all → one) |
 | `/` | Search |
+| `?` | Help: every key and command |
 | `:` | Command mode |
 | `q` | Quit |
 
@@ -66,6 +67,7 @@ Press `:` then type a command. Tab completes command names, and ↑/↓ browse h
 | `:repeat [off\|all\|one]` | Set or cycle repeat |
 | `:shuffle`, `:clear` | Shuffle / clear the queue |
 | `:queue`, `:focus <pane>` | Jump to a pane |
+| `:help` | Show the help overlay |
 | `:q` | Quit |
 
 ## Configuration

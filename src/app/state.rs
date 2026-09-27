@@ -1,10 +1,11 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ratatui::widgets::{ListState, TableState};
 
 use crate::app::action::Pane;
 use crate::app::queue::Queue;
 use crate::command::LineEditor;
+use crate::keymap::HelpEntry;
 use crate::provider::{Playlist, Track};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +34,25 @@ pub enum StatusLevel {
 pub struct Status {
     pub text: String,
     pub level: StatusLevel,
+    pub since: Instant,
+}
+
+impl Status {
+    /// Messages fade so the footer hints come back; errors linger longer.
+    pub fn expired(&self) -> bool {
+        let ttl = match self.level {
+            StatusLevel::Info => Duration::from_secs(4),
+            StatusLevel::Error => Duration::from_secs(8),
+        };
+        self.since.elapsed() >= ttl
+    }
+}
+
+/// A footer hint: `key label`, e.g. `a add`.
+#[derive(Debug, Clone)]
+pub struct Hint {
+    pub key: String,
+    pub label: &'static str,
 }
 
 pub struct AppState {
@@ -56,6 +76,12 @@ pub struct AppState {
     pub command_line: LineEditor,
     pub search_line: LineEditor,
     pub status: Option<Status>,
+
+    pub help_open: bool,
+    pub help_scroll: u16,
+    pub help_entries: Vec<HelpEntry>,
+    /// Footer hints per pane, indexed like `Pane::ALL`.
+    pub hints: [Vec<Hint>; 3],
 }
 
 impl AppState {
@@ -83,6 +109,10 @@ impl AppState {
             command_line: LineEditor::default(),
             search_line: LineEditor::default(),
             status: None,
+            help_open: false,
+            help_scroll: 0,
+            help_entries: Vec::new(),
+            hints: Default::default(),
         }
     }
 
@@ -90,6 +120,7 @@ impl AppState {
         self.status = Some(Status {
             text: text.into(),
             level: StatusLevel::Info,
+            since: Instant::now(),
         });
     }
 
@@ -97,7 +128,13 @@ impl AppState {
         self.status = Some(Status {
             text: text.into(),
             level: StatusLevel::Error,
+            since: Instant::now(),
         });
+    }
+
+    pub fn hints_for_focus(&self) -> &[Hint] {
+        let i = Pane::ALL.iter().position(|p| *p == self.focus).unwrap_or(0);
+        &self.hints[i]
     }
 
     /// Selected index and length of the focused pane's list.

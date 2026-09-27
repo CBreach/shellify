@@ -140,8 +140,8 @@ pub fn complete(line: &str) -> Completion {
     }
     let matches: Vec<&'static str> = parser::COMMANDS
         .iter()
-        .copied()
-        .filter(|c| c.starts_with(line))
+        .map(|c| c.name)
+        .filter(|name| name.starts_with(line))
         .collect();
     match matches.as_slice() {
         [] => Completion::None,
