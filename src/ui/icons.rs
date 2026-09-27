@@ -56,6 +56,8 @@ pub struct Icons {
     pub sep: &'static str,
     /// Color sample in the Settings tab.
     pub swatch: &'static str,
+    /// Drawn across a draggable pane border (two cells: left, right).
+    pub grip: [&'static str; 2],
     pub border: border::Set<'static>,
     /// Border for the focused pane when there is no color to mark it.
     pub border_focus: border::Set<'static>,
@@ -75,6 +77,7 @@ const UNICODE: Icons = Icons {
     spinner: &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
     sep: "·",
     swatch: "███",
+    grip: ["◂", "▸"],
     border: border::ROUNDED,
     border_focus: border::THICK,
 };
@@ -104,6 +107,7 @@ const ASCII: Icons = Icons {
     spinner: &["|", "/", "-", "\\"],
     sep: "|",
     swatch: "###",
+    grip: ["<", ">"],
     border: ASCII_BORDER,
     border_focus: border::Set {
         top_left: "#",
@@ -151,6 +155,8 @@ mod tests {
             i.ellipsis,
             i.sep,
             i.swatch,
+            i.grip[0],
+            i.grip[1],
             border.top_left,
             border.horizontal_top,
             border.vertical_left,

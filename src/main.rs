@@ -39,6 +39,14 @@ async fn main() -> Result<()> {
     let app = App::new(&config, config_path)?;
 
     let terminal = ratatui::init();
+    // ratatui's panic hook restores raw mode and the screen, but not mouse
+    // capture (which we may enable), so release that first on a panic.
+    let restore_terminal = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        app::set_mouse_capture(false);
+        app::pointer::restore();
+        restore_terminal(info);
+    }));
     let result = app.run(terminal).await;
     ratatui::restore();
     result

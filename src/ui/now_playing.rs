@@ -14,7 +14,9 @@ use crate::app::state::AppState;
 const VOLUME_CELLS: usize = 10;
 const COMPACT_BELOW: u16 = 70;
 
-pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
+/// Returns the progress bar's area (between the time labels) when a track is
+/// loaded, so a mouse click can seek.
+pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) -> Option<Rect> {
     let icons = theme.icons;
     let block = Block::bordered()
         .border_set(theme.icons.border)
@@ -48,7 +50,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
             progress_line(0.0, "-:--", "-:--", progress.width, theme),
             progress,
         );
-        return;
+        return None;
     };
 
     let playback = &state.playback;
@@ -97,14 +99,15 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     } else {
         fmt_duration(duration)
     };
-    let line = progress_line(
-        ratio,
-        &fmt_duration(playback.position),
-        &total,
-        progress.width,
-        theme,
-    );
+    let elapsed = fmt_duration(playback.position);
+    let line = progress_line(ratio, &elapsed, &total, progress.width, theme);
     frame.render_widget(line, progress);
+
+    let bar_x = progress.x + elapsed.width() as u16 + 2;
+    let bar_width = progress
+        .width
+        .saturating_sub((elapsed.width() + total.width() + 4) as u16);
+    (bar_width > 0).then(|| Rect::new(bar_x, progress.y, bar_width, 1))
 }
 
 /// `⟳ all   vol ━━━━━━━─── 70%` (glyphs from the icon pack)

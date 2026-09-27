@@ -13,7 +13,8 @@ const VALUE_WIDTH: usize = 10;
 
 /// The Settings tab: one row per option, the selected one highlighted, with
 /// a live preview (color swatches, icon glyphs) next to each value.
-pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
+/// Returns the on-screen area of each visible row, for mouse clicks.
+pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) -> Vec<(Rect, usize)> {
     let block = Block::bordered()
         .border_set(if theme.mono {
             theme.icons.border_focus
@@ -35,15 +36,23 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
             Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
         ),
     ];
+    let heading = Style::new().fg(theme.accent).add_modifier(Modifier::BOLD);
     let mut selected_line = 0;
+    let mut row_lines = Vec::new();
     for (i, &row) in SettingRow::ALL.iter().enumerate() {
-        if row == SettingRow::Reset {
-            lines.push(Line::from(""));
+        match row {
+            SettingRow::Mouse => {
+                lines.push(Line::from(""));
+                lines.push(Line::styled(" Behavior", heading));
+            }
+            SettingRow::Reset => lines.push(Line::from("")),
+            _ => {}
         }
         let selected = i == state.settings_cursor;
         if selected {
             selected_line = lines.len();
         }
+        row_lines.push((lines.len(), i));
         lines.push(row_line(state, theme, row, selected));
     }
     lines.push(Line::from(""));
@@ -59,6 +68,16 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
     // Keep the selected row on screen in short terminals.
     let scroll = (selected_line + 2).saturating_sub(inner.height as usize) as u16;
     frame.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), area);
+
+    let visible = usize::from(scroll)..usize::from(scroll) + usize::from(inner.height);
+    row_lines
+        .into_iter()
+        .filter(|(line, _)| visible.contains(line))
+        .map(|(line, i)| {
+            let y = inner.y + (line - usize::from(scroll)) as u16;
+            (Rect::new(inner.x, y, inner.width, 1), i)
+        })
+        .collect()
 }
 
 fn row_line(state: &AppState, theme: &Theme, row: SettingRow, selected: bool) -> Line<'static> {
@@ -116,6 +135,17 @@ fn preview(state: &AppState, theme: &Theme, row: SettingRow, muted: Style) -> Ve
             icons.knob,
             icons.bar_empty,
         ))],
+        SettingRow::ResizeCursor if !state.appearance.mouse => {
+            vec![Span::styled("(needs Mouse on)", muted)]
+        }
+        SettingRow::ResizeCursor => vec![Span::styled(
+            "pointer shape over pane borders (kitty, foot, Ghostty...)",
+            muted,
+        )],
+        SettingRow::Mouse if state.appearance.mouse => vec![Span::styled(
+            "click, double-click, scroll (Shift+drag selects text)",
+            muted,
+        )],
         SettingRow::Color if theme.mono && state.appearance.color == ColorMode::Auto => {
             vec![Span::styled("(off: NO_COLOR or TERM=dumb is set)", muted)]
         }

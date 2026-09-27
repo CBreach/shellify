@@ -1,15 +1,20 @@
 pub mod action;
 mod demo;
 mod dispatch;
+mod mouse;
+pub(crate) mod pointer;
 pub mod queue;
 pub mod settings;
 pub mod state;
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers,
+};
 use futures::StreamExt;
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc;
@@ -19,7 +24,9 @@ use crate::config::Config;
 use crate::keymap::{KeyPress, KeyResult, Keymap};
 use crate::player::{self, LoadId, MpvOptions, MpvPlayer, Player, PlayerEvent};
 use crate::ui;
+use crate::ui::layout::PaneSizes;
 use crate::ui::theme::Theme;
+use action::Pane;
 use action::{Action, View};
 use settings::Appearance;
 use state::{AppState, Hint, Mode};
@@ -48,6 +55,10 @@ pub struct App {
     /// Tracks that failed to play in a row, to stop skipping through a queue
     /// that can't play at all (e.g. no network).
     failures: usize,
+    /// Whether terminal mouse capture is currently on (follows the setting).
+    mouse_captured: bool,
+    /// Last left click, for double-click detection.
+    last_click: Option<(ratatui::layout::Position, Instant)>,
 }
 
 impl App {
@@ -61,6 +72,16 @@ impl App {
             theme: config.theme.clone(),
             color: config.ui.color,
             icons: config.ui.icons,
+            mouse: config.ui.mouse,
+            resize_cursor: config.ui.resize_cursor,
+            panes: PaneSizes {
+                library: config
+                    .ui
+                    .library_width
+                    .unwrap_or(PaneSizes::default().library),
+                queue: config.ui.queue_width.unwrap_or(PaneSizes::default().queue),
+            }
+            .clamped(Pane::Library),
         };
         state.config_path_label = display_path(&config_path);
         state.tab_labels = [("view music", "Music"), ("view settings", "Settings")].map(
@@ -77,6 +98,8 @@ impl App {
             player: None,
             current_load: None,
             failures: 0,
+            mouse_captured: false,
+            last_click: None,
         })
     }
 
@@ -85,6 +108,10 @@ impl App {
         spawn_input(tx.clone());
         spawn_ticker(tx.clone());
 
+        if self.state.appearance.mouse {
+            self.mouse_captured = true;
+            set_mouse_capture(true);
+        }
         self.state.info("Welcome to Shellify! Press ? for help");
         self.start_player(tx).await;
         while !self.state.should_quit {
@@ -99,6 +126,9 @@ impl App {
         if let Some(mut player) = self.player.take() {
             player.shutdown().await;
         }
+        // Always release the mouse, or the shell keeps receiving escape codes.
+        set_mouse_capture(false);
+        pointer::restore();
         Ok(())
     }
 
@@ -135,6 +165,7 @@ impl App {
     fn handle(&mut self, event: AppEvent) {
         match event {
             AppEvent::Input(Event::Key(key)) if key.kind == KeyEventKind::Press => self.on_key(key),
+            AppEvent::Input(Event::Mouse(mouse)) => self.on_mouse(mouse),
             AppEvent::Input(_) => {} // resize etc.: the next draw picks it up
             AppEvent::Tick => {
                 // Periodic redraw; also clears expired status messages.
@@ -289,6 +320,23 @@ fn pane_hints(keymap: &Keymap) -> [Vec<Hint>; 3] {
             ("help", "help"),
         ]),
     ]
+}
+
+/// Turns terminal mouse reporting on or off. With it on, the terminal's own
+/// click-drag selection needs Shift held (in most emulators).
+pub(crate) fn set_mouse_capture(on: bool) {
+    let mut out = std::io::stdout();
+    let result = if on {
+        crossterm::execute!(out, EnableMouseCapture)
+    } else {
+        crossterm::execute!(out, DisableMouseCapture)
+    };
+    if let Err(e) = result {
+        tracing::warn!(
+            "couldn't {} mouse capture: {e}",
+            if on { "enable" } else { "disable" }
+        );
+    }
 }
 
 fn settings_hints(keymap: &Keymap) -> Vec<Hint> {

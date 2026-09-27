@@ -2,14 +2,22 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
+use unicode_width::UnicodeWidthStr;
 
 use super::theme::Theme;
 use crate::app::action::{Pane, View};
 use crate::app::state::AppState;
 
 /// Top line: app name, the Music/Settings tabs, and a pane switcher when
-/// only one pane fits.
-pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme, narrow: bool) {
+/// only one pane fits. Returns where each tab was drawn, for mouse clicks.
+pub fn draw(
+    frame: &mut Frame,
+    area: Rect,
+    state: &AppState,
+    theme: &Theme,
+    narrow: bool,
+) -> Vec<(Rect, View)> {
+    let mut tabs = Vec::new();
     let muted = Style::new().fg(theme.muted);
     let mut spans = Vec::new();
     if !narrow {
@@ -27,7 +35,11 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme, narr
         } else {
             muted
         };
-        spans.push(Span::styled(format!(" {label} "), style));
+        let x = area.x + Line::from(spans.clone()).width() as u16;
+        let label = format!(" {label} ");
+        let width = (label.width() as u16).min(area.right().saturating_sub(x));
+        tabs.push((Rect::new(x, area.y, width, 1), view));
+        spans.push(Span::styled(label, style));
         spans.push(Span::raw(" "));
     }
 
@@ -51,6 +63,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme, narr
         }
     }
     frame.render_widget(Line::from(spans), area);
+    tabs
 }
 
 pub fn pane_name(pane: Pane) -> &'static str {

@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use ratatui::layout::Rect;
 use ratatui::widgets::{ListState, TableState};
 
 use crate::app::action::{Pane, View};
@@ -56,6 +57,44 @@ impl Status {
     }
 }
 
+/// Where clickable things were drawn in the last frame, so mouse events can
+/// be mapped back to them. Rebuilt on every draw.
+#[derive(Debug, Default)]
+pub struct HitMap {
+    pub tabs: Vec<(Rect, View)>,
+    pub lists: Vec<ListHit>,
+    /// The progress bar itself (between the time labels), for click-to-seek.
+    pub progress: Option<Rect>,
+    /// Settings rows on screen: (row area, index into `SettingRow::ALL`).
+    pub settings_rows: Vec<(Rect, usize)>,
+    pub help: Option<Rect>,
+    /// Draggable pane borders: (grab area, the side pane it resizes).
+    pub dividers: Vec<(Rect, Pane)>,
+    /// The area the three panes share, for converting a drag to a percentage.
+    pub panes_area: Option<Rect>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ListHit {
+    pub pane: Pane,
+    /// The whole pane, borders included (a click here focuses it).
+    pub area: Rect,
+    /// The rows holding items (below borders and any table header).
+    pub rows: Rect,
+    /// Screen lines per item (the queue shows two per track).
+    pub item_height: u16,
+}
+
+impl ListHit {
+    /// The item index under screen row `y`, given the list's scroll offset.
+    pub fn item_at(&self, y: u16, offset: usize) -> Option<usize> {
+        if y < self.rows.y || y >= self.rows.bottom() {
+            return None;
+        }
+        Some(offset + usize::from((y - self.rows.y) / self.item_height.max(1)))
+    }
+}
+
 /// A footer hint: `key label`, e.g. `a add`.
 #[derive(Debug, Clone)]
 pub struct Hint {
@@ -101,6 +140,12 @@ pub struct AppState {
     pub config_path_label: String,
     /// Header tab labels with their keys, e.g. `1 Music`.
     pub tab_labels: [String; 2],
+
+    pub hits: HitMap,
+    /// The pane border under the mouse pointer, highlighted as draggable.
+    pub divider_hover: Option<Pane>,
+    /// The pane border being dragged right now.
+    pub divider_drag: Option<Pane>,
 }
 
 impl AppState {
@@ -141,6 +186,9 @@ impl AppState {
             setting_line: LineEditor::default(),
             config_path_label: String::new(),
             tab_labels: ["Music".into(), "Settings".into()],
+            hits: HitMap::default(),
+            divider_hover: None,
+            divider_drag: None,
         }
     }
 
@@ -185,11 +233,20 @@ impl AppState {
         }
     }
 
-    /// Shows `tracks` in the middle pane and focuses it.
+    /// Scroll offset of a pane's list (first visible item).
+    pub fn list_offset(&self, pane: Pane) -> usize {
+        match pane {
+            Pane::Library => self.library_state.offset(),
+            Pane::Tracks => self.tracks_state.offset(),
+            Pane::Queue => self.queue_state.offset(),
+        }
+    }
+
     pub fn selected_setting(&self) -> SettingRow {
         SettingRow::ALL[self.settings_cursor.min(SettingRow::ALL.len() - 1)]
     }
 
+    /// Shows `tracks` in the middle pane and focuses it.
     pub fn show_tracks(&mut self, title: String, tracks: Vec<Track>) {
         self.tracks_title = title;
         self.tracks = tracks;
