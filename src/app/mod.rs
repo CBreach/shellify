@@ -6,7 +6,7 @@ pub mod settings;
 pub mod state;
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -17,6 +17,7 @@ use tokio::sync::mpsc;
 use crate::command::{self, Completion};
 use crate::config::Config;
 use crate::keymap::{KeyPress, KeyResult, Keymap};
+use crate::player::{self, LoadId, MpvOptions, MpvPlayer, Player, PlayerEvent};
 use crate::ui;
 use crate::ui::theme::Theme;
 use action::{Action, View};
@@ -25,12 +26,13 @@ use state::{AppState, Hint, Mode};
 
 const TICK: Duration = Duration::from_millis(250);
 
-/// Everything the main loop reacts to. Player and provider events join this
-/// enum in later steps so the loop stays a single `recv`.
+/// Everything the main loop reacts to. Provider events join this enum in a
+/// later step so the loop stays a single `recv`.
 #[derive(Debug)]
 pub enum AppEvent {
     Input(Event),
     Tick,
+    Player(PlayerEvent),
 }
 
 pub struct App {
@@ -39,7 +41,13 @@ pub struct App {
     theme: Theme,
     /// Where the Settings tab saves to.
     config_path: PathBuf,
-    last_tick: Instant,
+    /// `None` when mpv couldn't be started or has died.
+    player: Option<Box<dyn Player>>,
+    /// The load whose events we act on; events from older loads are stale.
+    current_load: Option<LoadId>,
+    /// Tracks that failed to play in a row, to stop skipping through a queue
+    /// that can't play at all (e.g. no network).
+    failures: usize,
 }
 
 impl App {
@@ -66,16 +74,19 @@ impl App {
             keymap,
             theme: Theme::from_config(&config.theme, config.ui.color, config.ui.icons)?,
             config_path,
-            last_tick: Instant::now(),
+            player: None,
+            current_load: None,
+            failures: 0,
         })
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         let (tx, mut rx) = mpsc::unbounded_channel();
         spawn_input(tx.clone());
-        spawn_ticker(tx);
+        spawn_ticker(tx.clone());
 
         self.state.info("Welcome to Shellify! Press ? for help");
+        self.start_player(tx).await;
         while !self.state.should_quit {
             terminal.draw(|frame| ui::draw(frame, &mut self.state, &self.theme))?;
             let Some(event) = rx.recv().await else { break };
@@ -85,7 +96,40 @@ impl App {
                 self.handle(event);
             }
         }
+        if let Some(mut player) = self.player.take() {
+            player.shutdown().await;
+        }
         Ok(())
+    }
+
+    async fn start_player(&mut self, tx: mpsc::UnboundedSender<AppEvent>) {
+        let (player_tx, mut player_rx) = mpsc::unbounded_channel();
+        let options = MpvOptions {
+            volume: self.state.playback.volume,
+            ..Default::default()
+        };
+        match MpvPlayer::spawn(options, player_tx).await {
+            Ok(player) => {
+                self.player = Some(Box::new(player));
+                // mpv needs yt-dlp for YouTube sources, and only says so per track.
+                if !player::on_path("yt-dlp") {
+                    self.state.error(
+                        "yt-dlp not found: YouTube tracks won't play (install it, e.g. `brew install yt-dlp`)",
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::error!("starting mpv: {e:#}");
+                self.state.error(format!("{e:#}"));
+            }
+        }
+        tokio::spawn(async move {
+            while let Some(event) = player_rx.recv().await {
+                if tx.send(AppEvent::Player(event)).is_err() {
+                    break;
+                }
+            }
+        });
     }
 
     fn handle(&mut self, event: AppEvent) {
@@ -93,13 +137,12 @@ impl App {
             AppEvent::Input(Event::Key(key)) if key.kind == KeyEventKind::Press => self.on_key(key),
             AppEvent::Input(_) => {} // resize etc.: the next draw picks it up
             AppEvent::Tick => {
+                // Periodic redraw; also clears expired status messages.
                 if self.state.status.as_ref().is_some_and(|s| s.expired()) {
                     self.state.status = None;
                 }
-                let now = Instant::now();
-                self.on_tick(now - self.last_tick);
-                self.last_tick = now;
             }
+            AppEvent::Player(event) => self.on_player_event(event),
         }
     }
 

@@ -134,6 +134,7 @@ mod tests {
             title: "A Rather Long Song Title For Truncation".into(),
             artist: "Some Artist".into(),
             duration: Duration::from_secs(200),
+            source: None,
         };
         let mut state = AppState::new(vec![Playlist {
             name: "Liked Songs".into(),

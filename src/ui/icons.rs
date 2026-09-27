@@ -50,6 +50,8 @@ pub struct Icons {
     pub knob: &'static str,
     /// Appended to truncated text.
     pub ellipsis: &'static str,
+    /// Frames of the loading spinner.
+    pub spinner: &'static [&'static str],
     /// Separator in titles and hint bars.
     pub sep: &'static str,
     /// Color sample in the Settings tab.
@@ -70,6 +72,7 @@ const UNICODE: Icons = Icons {
     bar_empty: "─",
     knob: "●",
     ellipsis: "…",
+    spinner: &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
     sep: "·",
     swatch: "███",
     border: border::ROUNDED,
@@ -98,6 +101,7 @@ const ASCII: Icons = Icons {
     bar_empty: "-",
     knob: "o",
     ellipsis: "...",
+    spinner: &["|", "/", "-", "\\"],
     sep: "|",
     swatch: "###",
     border: ASCII_BORDER,

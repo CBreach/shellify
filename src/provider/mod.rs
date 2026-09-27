@@ -8,7 +8,11 @@ pub struct Track {
     pub id: String,
     pub title: String,
     pub artist: String,
+    /// Length from metadata; zero when unknown (the player reports the real one).
     pub duration: Duration,
+    /// URL or file the player can open directly. `None` means the app resolves
+    /// one from the track (see `app::demo::playback_source`).
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone)]

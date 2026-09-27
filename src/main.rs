@@ -2,6 +2,7 @@ mod app;
 mod command;
 mod config;
 mod keymap;
+mod player;
 mod provider;
 mod ui;
 

@@ -19,6 +19,7 @@ pub const COMMANDS: &[CommandInfo] = &[
     ),
     cmd("help", "help", "Show this help"),
     cmd("next", "next", "Next track"),
+    cmd("open", "open <url|path>", "Play a URL or local file"),
     cmd("pause", "pause", "Toggle pause"),
     cmd(
         "play",
@@ -95,6 +96,8 @@ pub fn parse(input: &str) -> Result<Action, String> {
         "play" => Ok(Action::PlayQuery(arg.to_string())),
         "search" if arg.is_empty() => Ok(Action::OpenSearch),
         "search" => Ok(Action::Search(arg.to_string())),
+        "open" if arg.is_empty() => Err("open: expected a URL or file path".into()),
+        "open" => Ok(Action::Open(arg.to_string())),
         "seek" => parse_seek(arg).map(Action::Seek),
         "vol" | "volume" => parse_volume(arg).map(Action::Volume),
         "repeat" => parse_repeat(arg).map(Action::Repeat),
@@ -208,6 +211,15 @@ mod tests {
         assert_eq!(parse("vol -15"), Ok(Action::Volume(Volume::Change(-15))));
         assert!(parse("vol 101").is_err());
         assert!(parse("vol loud").is_err());
+    }
+
+    #[test]
+    fn parse_open_requires_a_target() {
+        assert_eq!(
+            parse("open ~/Music/song one.mp3"),
+            Ok(Action::Open("~/Music/song one.mp3".into()))
+        );
+        assert!(parse("open").is_err());
     }
 
     #[test]
