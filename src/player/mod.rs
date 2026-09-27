@@ -3,9 +3,12 @@
 //! joins it with Spotify).
 
 // Not wired into the app yet; removed once the app drives the player.
-#![allow(dead_code)]
+#![allow(dead_code, unused_imports)]
 
 mod ipc;
+pub mod mpv;
+
+pub use mpv::{MpvOptions, MpvPlayer};
 
 use std::time::Duration;
 
