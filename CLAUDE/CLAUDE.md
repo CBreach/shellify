@@ -28,7 +28,23 @@ Shellify is a public, open-source project meant for anyone to clone and use with
 
 **Every feature goes through a pull request.** Branch from `main` (`feature/<name>`), commit after each small working step, push the branch, and open a PR for the user to review. Never push features straight to `main`, and don't merge PRs unless the user asks. **Do not add `Co-Authored-By` or any other AI/tool attribution to commit messages or PR descriptions.**
 
-CI (`.github/workflows/ci.yml`) runs fmt, clippy (`-D warnings`) and tests on ubuntu and macOS for every PR and every push to main. Branch protection on `main` requires the **All checks** job to pass and the branch to be up to date before merging.
+**Every PR that changes Rust code under `src/` must add or change a unit test.** The "Unit tests required" check fails otherwise. It counts added lines inside a `#[cfg(test)]` item, a `#[test]`/`#[tokio::test]` function, or a test-only file (`tests.rs`, `*_tests.rs`, anything under a `tests/` dir); deletions, blank lines and comments don't count as code changes. For a change that genuinely can't be tested, add the `no-tests-needed` label and say why in the PR description; the check re-runs on labelling. The logic is in `.github/scripts/check_tests.py` (self-tests: `python3 -m unittest discover -s .github/scripts`).
+
+### CI
+
+`.github/workflows/ci.yml` runs on every PR and every push to main. Branch protection on `main` requires the **All checks** job to pass and the branch to be up to date before merging. **All checks** `needs:` every blocking job, so a new blocking job must be added to its `needs` list (no repo-settings change required).
+
+Blocking (part of **All checks**):
+- **Lint & unit tests** (ubuntu, macOS): `cargo fmt --check`, clippy `-D warnings`, `cargo test --locked --no-fail-fast`.
+- **Integration tests** (ubuntu, macOS): installs mpv and runs the `#[ignore]`d tests with `cargo test -- --ignored --skip live --test-threads=1`.
+- **Dependencies**: `cargo deny check` against `deny.toml` (RustSec advisories, licenses compatible with MIT, wildcard bans, crates.io only). To accept an advisory, add it to `[advisories] ignore` with a reason and a revisit date; to accept a license, add it to `allow` or `exceptions`.
+- **Secret scan**: gitleaks over the whole git history, findings redacted. A false positive goes in a `.gitleaksignore` (its fingerprint), never a real secret.
+- **CodeQL** (`rust` and `actions`, `security-extended` queries): uploads to the Security tab and fails while any CodeQL alert is open for the PR. Fix it, or dismiss a false positive in the Security tab with a reason, then re-run.
+- **Unit tests required** (PRs only): see above.
+
+Not blocking: **Coverage** (`cargo llvm-cov` summary in the run's summary page). `.github/workflows/nightly.yml` runs daily: the **live network tests** and a fresh RustSec advisory check. Dependabot (`.github/dependabot.yml`) opens weekly grouped PRs for Cargo and for the Actions, which are pinned by commit SHA with the version in a comment.
+
+**Test naming:** an `#[ignore]`d test that needs the network (a real provider API) must have `live` in its name, e.g. `ytmusic_live_search_finds_songs`. The integration job skips those, and the nightly workflow runs only those. Ignored tests without `live` must run offline (for example against a real mpv playing a generated tone).
 
 ## Commands
 
@@ -37,9 +53,13 @@ cargo build
 cargo run                              # launches the TUI
 cargo test                             # all tests
 cargo test <name_substring>            # single test, e.g. cargo test parse_seek
-cargo test -- --ignored                # tests that need a real mpv (plays a generated tone, no network or audio device)
+cargo test -- --ignored --skip live    # integration tests: need a real mpv (plays a generated tone, no network or audio device)
+cargo test -- --ignored live           # live tests: talk to the real providers over the network (nightly in CI)
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
+cargo deny check                       # dependency advisories, licenses, sources (`cargo install cargo-deny`)
+python3 -m unittest discover -s .github/scripts   # self-tests for the CI scripts
+BASE_REF=origin/main python3 .github/scripts/check_tests.py   # the "Unit tests required" check, run locally
 ```
 
 Runtime dependencies (not Rust crates): `mpv` and `yt-dlp` must be on `PATH` (`brew install mpv yt-dlp`).

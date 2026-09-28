@@ -207,10 +207,23 @@ Logs are written to your cache directory (`~/Library/Caches/shellify/` on macOS)
 
 ## Contributing
 
-Every change goes through a pull request into `main`. CI runs `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` on Linux and macOS, and a PR can only merge once the **All checks** job passes. Run the same checks locally before pushing:
+Every change goes through a pull request into `main`, and a PR can only merge once the **All checks** job passes. It requires all of these:
+
+- **Lint & unit tests** on Linux and macOS: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`.
+- **Integration tests** on Linux and macOS: the ignored tests that drive a real mpv (a generated tone, no network or audio device).
+- **Dependencies**: [`cargo deny`](https://github.com/EmbarkStudios/cargo-deny) checks for known vulnerabilities (RustSec), licenses compatible with MIT and crates from outside crates.io. The policy is in [`deny.toml`](deny.toml).
+- **Secret scan**: [gitleaks](https://github.com/gitleaks/gitleaks) checks the git history for credentials.
+- **CodeQL**: static analysis of the Rust code and the workflows. Results appear in the Security tab, and open alerts block the merge.
+- **Unit tests required**: a PR that changes Rust code under `src/` must also add or change a unit test (in a `#[cfg(test)]` module). If a change genuinely can't be tested, add the `no-tests-needed` label and explain why in the PR description.
+
+Tests that need the network have `live` in their name. They don't run on pull requests; a nightly workflow runs them, along with a fresh vulnerability check. CI also reports unit-test coverage, without blocking.
+
+Run the main checks locally before pushing:
 
 ```sh
 cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test
+cargo test -- --ignored --skip live   # needs mpv
+cargo deny check                      # cargo install cargo-deny
 ```
 
 ## License
