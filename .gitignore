@@ -28,3 +28,6 @@ secrets*
 # Local-only Claude session notes
 CLAUDE/HANDOFF.md
 CLAUDE/PLAN.md
+
+# Python bytecode from the CI scripts
+__pycache__/
