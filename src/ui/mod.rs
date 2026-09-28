@@ -7,6 +7,7 @@ mod library;
 mod logos;
 mod now_playing;
 mod providers;
+mod qr;
 mod queue;
 mod settings;
 mod text;
@@ -482,7 +483,22 @@ mod tests {
             let screen = render_state(&mut state, w, h, &Theme::default());
             assert!(screen.contains("ABCD-EFGH"), "{w}x{h}:\n{screen}");
             assert!(screen.contains("google.com/device"), "{w}x{h}");
+            assert!(
+                screen.contains("\x1b]8;;https://www.google.com/device"),
+                "{w}x{h}: the address is a link"
+            );
         }
+        // A QR code when there's room (its light quiet zone is solid blocks).
+        let tall = render_state(&mut state, 100, 40, &Theme::default());
+        assert!(tall.contains(&"█".repeat(25)), "QR code shown");
+        assert!(!render_state(&mut state, 80, 24, &Theme::default()).contains(&"█".repeat(25)));
+        let ascii = Theme {
+            icons: icons::IconPack::Ascii.icons(),
+            ..Theme::default()
+        };
+        let screen = render_state(&mut state, 100, 40, &ascii);
+        assert!(!screen.contains('█'), "no QR code without block glyphs");
+        assert!(screen.contains("ABCD-EFGH"));
         state.sign_in = SignIn::SignedIn {
             account: Some("Test Listener".into()),
         };

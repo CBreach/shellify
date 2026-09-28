@@ -129,7 +129,7 @@ Shellify is open source, so it can't ship a Google client of its own: you create
 4. Under **Data Access**, add the scope `https://www.googleapis.com/auth/youtube.readonly`.
 5. Under **Audience**, click **Publish app** so its status is **In production**. While it's in *Testing*, Google ends your sign-in after 7 days. Since the app is only yours, Google may show a "Google hasn't verified this app" screen when you sign in: choose **Advanced**, then continue.
 6. Under **Clients**, create a client of type **TVs and Limited Input devices**, and keep its **client ID** and **client secret** at hand.
-7. In Shellify, run `:login`. Paste the client ID, then the client secret. Shellify shows a code: open [google.com/device](https://www.google.com/device) on any device, enter the code and approve.
+7. In Shellify, run `:login`. Paste the client ID, then the client secret. Shellify shows a QR code, a link and a short code: scan the QR code with your phone, or click the link (or press `o` to open it in your browser), then enter the code and approve. It works over SSH too, since the approving happens on another device.
 
 Where things are kept: the client ID in `config.toml` (`[providers.youtube-music] client_id`), and the client secret and your sign-in in the system keychain, never in the config file. `:logout` forgets the sign-in and revokes it with Google; the client stays, so signing in again only takes the code. If Google rejects the client ID or secret, Shellify forgets them and `:login` asks again.
 

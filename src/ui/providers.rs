@@ -13,6 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 
 use super::logos::{Logo, Pixel};
+use super::qr::{self, Qr};
 use super::text::spinner;
 use super::theme::Theme;
 use crate::app::signin::time_left;
@@ -343,22 +344,25 @@ fn setup_text(kind: ProviderKind, state: &AppState, theme: &Theme) -> Vec<Line<'
             spinner(theme.icons.spinner),
             theme.icons.ellipsis
         ))],
-        SignIn::Code { url, code, expires } => vec![
-            Line::from("On any device, go to"),
-            Line::styled(url.clone(), strong),
-            Line::from("and enter the code"),
-            Line::styled(code.clone(), strong),
-            Line::from(""),
-            Line::styled(
-                format!(
-                    "{} Waiting for you to approve (code expires in {}). \
-                     Esc hides this; sign-in carries on.",
-                    spinner(theme.icons.spinner),
-                    time_left(*expires)
+        // Nothing else: the QR code above needs the room.
+        SignIn::Code { url, code, expires } => {
+            return vec![
+                Line::from("Scan the code with your phone, or open"),
+                Line::styled(url.clone(), strong),
+                Line::from("(click it, or press o) and enter"),
+                Line::styled(code.clone(), strong),
+                Line::from(""),
+                Line::styled(
+                    format!(
+                        "{} Waiting for you to approve (expires in {}). \
+                         Esc hides this; sign-in carries on.",
+                        spinner(theme.icons.spinner),
+                        time_left(*expires)
+                    ),
+                    muted,
                 ),
-                muted,
-            ),
-        ],
+            ];
+        }
         SignIn::SignedIn { account } => vec![
             Line::from(match account {
                 Some(name) => format!("Signed in as {name}."),
@@ -396,16 +400,23 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
         Line::from(""),
     ];
     lines.extend(setup_text(kind, state, theme));
-    lines.extend([
-        Line::from(""),
-        Line::styled(
-            format!(
-                "Theme switched to {}. Change it any time in Settings.",
-                kind.name()
+    // While signing in, a QR code for the sign-in page takes the logo's place.
+    let sign_in_url = match &state.sign_in {
+        SignIn::Code { url, .. } if state.active_provider == Some(kind) => Some(url.as_str()),
+        _ => None,
+    };
+    if sign_in_url.is_none() {
+        lines.extend([
+            Line::from(""),
+            Line::styled(
+                format!(
+                    "Theme switched to {}. Change it any time in Settings.",
+                    kind.name()
+                ),
+                muted,
             ),
-            muted,
-        ),
-    ]);
+        ]);
+    }
     let text_rows: u16 = lines
         .iter()
         .map(|l| wrapped_rows(&l.to_string(), usize::from(text_width)))
@@ -413,11 +424,23 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
     // Borders plus a blank row above and below the text.
     let bare = text_rows + 4;
     let room = screen.height.saturating_sub(2);
+    let qr = sign_in_url
+        .filter(|_| theme.icons.blocks)
+        .and_then(Qr::new)
+        .filter(|qr| {
+            let (w, h) = qr.size();
+            bare + h < room && width >= w + 4
+        });
     let logo = SETUP_LOGOS
         .into_iter()
+        .filter(|_| sign_in_url.is_none())
         .find(|&size| bare + size as u16 / 2 < room && width >= size as u16 + 4);
-    let logo_rows = logo.map_or(0, |size| size as u16 / 2 + 1);
-    let height = (bare + logo_rows).min(room);
+    let art_rows = match (&qr, logo) {
+        (Some(qr), _) => qr.size().1 + 1,
+        (None, Some(size)) => size as u16 / 2 + 1,
+        (None, None) => 0,
+    };
+    let height = (bare + art_rows).min(room);
 
     let [row] = Layout::vertical([Constraint::Length(height)])
         .flex(Flex::Center)
@@ -425,14 +448,15 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
     let [popup] = Layout::horizontal([Constraint::Length(width)])
         .flex(Flex::Center)
         .areas(row);
+    let keys = if sign_in_url.is_some() {
+        format!(" o open link {} esc hide ", theme.icons.sep)
+    } else {
+        format!(" esc close {} enter ok ", theme.icons.sep)
+    };
     let block = Block::bordered()
         .border_set(theme.icons.border)
         .border_style(Style::new().fg(color))
-        .title_bottom(
-            Line::from(format!(" esc close {} enter ok ", theme.icons.sep))
-                .style(muted)
-                .right_aligned(),
-        );
+        .title_bottom(Line::from(keys).style(muted).right_aligned());
     let inner = block.inner(popup);
     frame.render_widget(Clear, popup);
     frame.render_widget(block, popup);
@@ -443,12 +467,23 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
         y: inner.y + 1,
         height: inner.height.saturating_sub(1),
     };
-    if let Some(size) = logo {
+    if let Some(qr) = &qr {
+        let (w, h) = qr.size();
+        let area = Rect::new(
+            inner.x + inner.width.saturating_sub(w) / 2,
+            inner.y + 1,
+            w,
+            h,
+        );
+        qr.render(frame.buffer_mut(), area.intersection(inner), !theme.mono);
+        text_area.y = area.bottom() + 1;
+        text_area.height = inner.bottom().saturating_sub(text_area.y);
+    } else if let Some(size) = logo {
         let logo_area = Rect::new(
             inner.x + inner.width.saturating_sub(size as u16) / 2,
             inner.y,
             size as u16,
-            logo_rows,
+            art_rows,
         );
         let logo = Logo::new(kind, size);
         draw_logo(
@@ -467,6 +502,9 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
             .wrap(Wrap { trim: true }),
         text_area,
     );
+    if let Some(url) = sign_in_url {
+        qr::link(frame.buffer_mut(), text_area, url);
+    }
     popup
 }
 

@@ -378,6 +378,7 @@ impl App {
                     self.state.provider_setup = None;
                 }
                 KeyCode::Char(':') => self.open_command_line(),
+                KeyCode::Char('o') => self.open_sign_in_link(),
                 _ => {}
             }
             return;

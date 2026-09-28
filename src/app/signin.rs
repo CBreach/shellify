@@ -249,6 +249,18 @@ impl App {
         self.state.sign_in = SignIn::SignedOut;
     }
 
+    /// `o` on the setup screen: opens the sign-in page in the browser.
+    pub(super) fn open_sign_in_link(&mut self) {
+        let SignIn::Code { url, code, .. } = &self.state.sign_in else {
+            return;
+        };
+        let message = match open_in_browser(url) {
+            Ok(()) => format!("Opened {url}: enter {code} there"),
+            Err(e) => format!("Couldn't open the browser ({e}): go to {url}"),
+        };
+        self.state.info(message);
+    }
+
     fn cancel_sign_in(&mut self) {
         if let Some(task) = self.sign_in_task.take() {
             task.abort();
@@ -363,6 +375,30 @@ async fn save(store: &Arc<dyn SecretStore>, key: &'static str, value: Secret) ->
 async fn delete(store: &Arc<dyn SecretStore>, key: &'static str) -> Result<()> {
     let store = store.clone();
     tokio::task::spawn_blocking(move || store.delete(key)).await?
+}
+
+/// Opens an `https://` URL with the system's default browser.
+fn open_in_browser(url: &str) -> std::io::Result<()> {
+    // Only ever web pages: the URL comes from Google, but it's still input.
+    if !url.starts_with("https://") {
+        return Err(std::io::Error::other("not a web address"));
+    }
+    // Tests must not open real browser windows.
+    if cfg!(test) {
+        return Ok(());
+    }
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(opener)
+        .arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(drop)
 }
 
 /// `mm:ss` left before a sign-in code expires.
@@ -683,6 +719,33 @@ mod tests {
         }
         assert_eq!(h.app.state.sign_in, SignIn::SignedOut);
         assert!(h.app.youtube_session.is_none());
+    }
+
+    #[tokio::test]
+    async fn o_opens_the_sign_in_page_from_the_setup_screen() {
+        let server = MockServer::start().await;
+        let mut h = Harness::new(&server);
+        h.app.state.sign_in = SignIn::Code {
+            url: "https://www.google.com/device".into(),
+            code: "ABCD-EFGH".into(),
+            expires: Instant::now() + Duration::from_secs(600),
+        };
+        h.app.state.provider_setup = Some(YOUTUBE);
+        h.key(KeyCode::Char('o'));
+        let status = h.app.state.status.as_ref().unwrap();
+        assert!(
+            status.text.contains("enter ABCD-EFGH there"),
+            "{}",
+            status.text
+        );
+        assert_eq!(h.app.state.provider_setup, Some(YOUTUBE), "stays open");
+    }
+
+    #[test]
+    fn only_web_pages_are_opened() {
+        assert!(open_in_browser("https://www.google.com/device").is_ok());
+        assert!(open_in_browser("file:///etc/passwd").is_err());
+        assert!(open_in_browser("javascript:alert(1)").is_err());
     }
 
     #[test]
