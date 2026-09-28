@@ -129,9 +129,9 @@ pub struct AppState {
 
     pub library: Vec<Playlist>,
     pub library_state: ListState,
-    /// No provider has been added: the library is the demo one, and the UI
-    /// says so.
-    pub demo: bool,
+    /// The provider in use. `None` means demo mode: the library is the demo
+    /// one, and the UI says so.
+    pub active_provider: Option<ProviderKind>,
     /// Where to add a provider, e.g. `press 3`, for the demo notice.
     pub providers_key: Option<String>,
     /// Waiting for the provider's playlists.
@@ -201,7 +201,7 @@ impl AppState {
             should_quit: false,
             library_state: ListState::default().with_selected(Some(0)),
             library,
-            demo: false,
+            active_provider: None,
             providers_key: None,
             library_loading: false,
             tracks_title,
@@ -241,6 +241,11 @@ impl AppState {
             divider_hover: None,
             divider_drag: None,
         }
+    }
+
+    /// Whether the library is the demo one (no provider in use).
+    pub fn is_demo(&self) -> bool {
+        self.active_provider.is_none()
     }
 
     pub fn info(&mut self, text: impl Into<String>) {

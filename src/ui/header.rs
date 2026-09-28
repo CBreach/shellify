@@ -49,7 +49,7 @@ pub fn draw(
         let used = Line::from(spans.clone()).width();
         let all: usize = Pane::ALL.iter().map(|p| pane_name(*p).len() + 2).sum();
         // Keep room for the short demo badge.
-        let badge = if state.demo { "demo".len() + 2 } else { 0 };
+        let badge = if state.is_demo() { "demo".len() + 2 } else { 0 };
         // Show all three pane names if they fit, else just the focused one.
         let shown: Vec<Pane> = if used + all + badge <= area.width as usize {
             Pane::ALL.to_vec()
@@ -67,7 +67,7 @@ pub fn draw(
     }
     let used = Line::from(spans.clone()).width() as u16;
     frame.render_widget(Line::from(spans), area);
-    if state.demo {
+    if state.is_demo() {
         draw_demo_badge(frame, area, used, state, theme, &mut tabs);
     }
     tabs

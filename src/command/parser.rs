@@ -4,6 +4,7 @@ use crate::app::action::{
     Action, Focus, Pane, RepeatMode, Resize, Seek, Select, ThemeCommand, View, VizCommand, Volume,
 };
 use crate::app::visualizer::VizStyle;
+use crate::provider::ProviderKind;
 
 pub struct CommandInfo {
     pub name: &'static str,
@@ -33,6 +34,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         "prev",
         "prev",
         "Previous track (or restart the current one)",
+    ),
+    cmd(
+        "provider",
+        "provider <youtube-music|off>",
+        "Use a provider, or go back to the demo tracks",
     ),
     cmd("providers", "providers", "Open the Providers tab"),
     cmd("queue", "queue", "Focus the queue"),
@@ -100,6 +106,12 @@ pub fn parse(input: &str) -> Result<Action, String> {
         "help" => no_arg(Action::Help),
         "settings" => no_arg(Action::View(View::Settings)),
         "providers" => no_arg(Action::View(View::Providers)),
+        "provider" => match arg {
+            "off" | "demo" => Ok(Action::Provider(None)),
+            _ => ProviderKind::from_id(arg)
+                .map(|kind| Action::Provider(Some(kind)))
+                .ok_or_else(|| format!("provider: expected youtube-music or off, got {arg:?}")),
+        },
         "resize" => parse_resize(arg).map(Action::Resize),
         "theme" => parse_theme(arg).map(Action::Theme),
         "visualizer" | "viz" => parse_visualizer(arg).map(Action::Visualizer),
@@ -378,6 +390,17 @@ mod tests {
         assert!(parse("resize library").is_err());
         assert_eq!(parse("view music"), Ok(Action::View(View::Music)));
         assert_eq!(parse("view providers"), Ok(Action::View(View::Providers)));
+        assert_eq!(
+            parse("provider ytmusic"),
+            Ok(Action::Provider(Some(ProviderKind::YouTubeMusic)))
+        );
+        assert_eq!(
+            parse("provider youtube-music"),
+            Ok(Action::Provider(Some(ProviderKind::YouTubeMusic)))
+        );
+        assert_eq!(parse("provider off"), Ok(Action::Provider(None)));
+        assert!(parse("provider").is_err());
+        assert!(parse("provider napster").is_err());
         assert_eq!(parse("providers"), Ok(Action::View(View::Providers)));
         assert!(parse("view mixtape").is_err());
     }

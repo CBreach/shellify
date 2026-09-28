@@ -1,6 +1,7 @@
 //! The Providers tab: a card per streaming service with its pixel-art logo
-//! (the highlighted one bounces), and the setup screen that Enter or a click
-//! opens. Setup itself isn't implemented yet; the screen says so.
+//! (the highlighted one bounces) and whether it's on, and the setup screen
+//! that Enter or a click opens. Only YouTube Music can be switched on yet,
+//! signed out; the others' screens say what they'll need.
 
 use std::f32::consts::PI;
 
@@ -143,7 +144,7 @@ fn cards(
         };
         let text = [
             Line::styled(kind.name(), name_style),
-            Line::styled(kind.status(), Style::new().fg(theme.muted)),
+            status_line(*kind, state, theme),
         ];
         for (dy, line) in text.into_iter().enumerate() {
             let y = inner.y + logo_rows + 1 + dy as u16;
@@ -173,7 +174,7 @@ fn list(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) -> Vec<(
             Span::raw(" "),
             Span::styled(theme.icons.knob, Style::new().fg(brand(*kind, theme))),
             Span::raw(format!(" {:<14}", kind.name())),
-            Span::styled(kind.status(), Style::new().fg(theme.muted)),
+            status_span(*kind, state, theme),
         ]);
         let line = if selected {
             line.style(theme.selection())
@@ -275,20 +276,44 @@ fn draw_logo(buf: &mut Buffer, area: Rect, logo: &Logo, lift: usize, theme: &The
     }
 }
 
-/// The setup screen for `kind`, over everything else. Returns its area (a
-/// click outside closes it).
-pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: ProviderKind) -> Rect {
-    let screen = frame.area();
-    let width = screen.width.saturating_sub(4).min(SETUP_WIDTH);
-    let text_width = width.saturating_sub(4);
-    let color = brand(kind, theme);
-    let muted = Style::new().fg(theme.muted);
-    let lines = vec![
-        Line::styled(
-            format!("Set up {}", kind.name()),
-            Style::new().fg(color).add_modifier(Modifier::BOLD),
-        ),
-        Line::from(""),
+/// `on` (in use), `off` (available) or where it is on the roadmap.
+fn status_span(kind: ProviderKind, state: &AppState, theme: &Theme) -> Span<'static> {
+    if state.active_provider == Some(kind) {
+        Span::styled(
+            "on",
+            Style::new()
+                .fg(brand(kind, theme))
+                .add_modifier(Modifier::BOLD),
+        )
+    } else if kind.available() {
+        Span::styled("off", Style::new().fg(theme.muted))
+    } else {
+        Span::styled(kind.status(), Style::new().fg(theme.muted))
+    }
+}
+
+fn status_line(kind: ProviderKind, state: &AppState, theme: &Theme) -> Line<'static> {
+    Line::from(status_span(kind, state, theme))
+}
+
+/// What the setup screen says: how to use a provider that's on, or what
+/// one that isn't built yet will need.
+fn setup_text(kind: ProviderKind, state: &AppState) -> Vec<Line<'static>> {
+    if state.active_provider == Some(kind) {
+        return vec![
+            Line::from(format!(
+                "{} is on. Search with / and play any song, no account needed.",
+                kind.name()
+            )),
+            Line::from(kind.requirement()),
+            Line::from(""),
+            Line::from(format!(
+                "To go back to the demo tracks, press Enter on {} again, or run :provider off.",
+                kind.name()
+            )),
+        ];
+    }
+    vec![
         Line::from(format!(
             "Setup for {} isn't available yet ({}).",
             kind.name(),
@@ -300,6 +325,26 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
             "Your sign-in will stay on this computer, in the system keychain, \
              never in Shellify's config file.",
         ),
+    ]
+}
+
+/// The setup screen for `kind`, over everything else. Returns its area (a
+/// click outside closes it).
+pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: ProviderKind) -> Rect {
+    let screen = frame.area();
+    let width = screen.width.saturating_sub(4).min(SETUP_WIDTH);
+    let text_width = width.saturating_sub(4);
+    let color = brand(kind, theme);
+    let muted = Style::new().fg(theme.muted);
+    let mut lines = vec![
+        Line::styled(
+            format!("Set up {}", kind.name()),
+            Style::new().fg(color).add_modifier(Modifier::BOLD),
+        ),
+        Line::from(""),
+    ];
+    lines.extend(setup_text(kind, state));
+    lines.extend([
         Line::from(""),
         Line::styled(
             format!(
@@ -308,7 +353,7 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
             ),
             muted,
         ),
-    ];
+    ]);
     let text_rows: u16 = lines
         .iter()
         .map(|l| wrapped_rows(&l.to_string(), usize::from(text_width)))

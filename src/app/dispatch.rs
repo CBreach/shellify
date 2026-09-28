@@ -60,6 +60,7 @@ impl App {
             Action::Resize(resize) => self.resize(resize),
             Action::Theme(command) => self.theme_command(command),
             Action::Visualizer(command) => self.visualizer_command(command),
+            Action::Provider(kind) => self.use_provider(kind),
 
             Action::TogglePause => {
                 if self.state.queue.current().is_some() {
@@ -181,7 +182,7 @@ impl App {
                 return false;
             }
             Action::PlaySelected => {
-                self.open_provider_setup(self.state.provider_cursor);
+                self.choose_provider(self.state.provider_cursor);
                 return true;
             }
             _ => return false,
@@ -195,14 +196,20 @@ impl App {
         true
     }
 
-    /// Opens a provider's setup screen and switches to its theme.
-    pub(super) fn open_provider_setup(&mut self, index: usize) {
+    /// Enter (or a click) on a provider. One that's available is switched
+    /// on, or back off if it's already in use; the others open their setup
+    /// screen, which says what they'll need. Turning one on also shows the
+    /// setup screen, and switches to the provider's theme.
+    pub(super) fn choose_provider(&mut self, index: usize) {
         let Some(&kind) = ProviderKind::ALL.get(index) else {
             return;
         };
         self.state.provider_cursor = index;
-        self.state.provider_setup = Some(kind);
         self.state.bounce = 0.0;
+        if kind.available() && self.state.active_provider == Some(kind) {
+            self.use_provider(None);
+            return;
+        }
         let theme = &mut self.state.appearance.theme.preset;
         if theme.as_deref() != Some(kind.theme()) {
             *theme = Some(kind.theme().to_string());
@@ -210,6 +217,40 @@ impl App {
             if !self.status_is_error() {
                 self.state.info(format!("Theme: {}", kind.name()));
             }
+        }
+        if kind.available() {
+            self.use_provider(Some(kind));
+        }
+        self.state.provider_setup = Some(kind);
+    }
+
+    /// Switches to `kind`'s library (`None`: the demo one) and saves it.
+    fn use_provider(&mut self, kind: Option<ProviderKind>) {
+        if kind == self.state.active_provider {
+            let name = kind.map_or("the demo library", ProviderKind::name);
+            return self.state.info(format!("Already using {name}"));
+        }
+        match kind {
+            None => {
+                self.set_provider(None);
+                self.state.info("Back to the demo tracks");
+            }
+            Some(kind) => {
+                let Some(provider) = kind.connect() else {
+                    let status = kind.status();
+                    return self
+                        .state
+                        .error(format!("{} isn't available yet ({status})", kind.name()));
+                };
+                self.set_provider(Some(provider));
+                let search = self.search_hint();
+                self.state
+                    .info(format!("{} is on: {search} to search", kind.name()));
+            }
+        }
+        if let Err(e) = config::save_provider(&self.config_path, kind.map(ProviderKind::id)) {
+            self.state
+                .error(format!("couldn't save the provider: {e:#}"));
         }
     }
 
@@ -613,13 +654,10 @@ impl App {
 
     fn on_track_failed(&mut self, error: &str) {
         self.failures += 1;
-        let title = self
-            .state
-            .queue
-            .current()
-            .map(|t| t.title.clone())
-            .unwrap_or_default();
+        let current = self.state.queue.current();
+        let title = current.map(|t| t.title.clone()).unwrap_or_default();
         tracing::warn!(%title, %error, "track failed");
+        let error = current.map_or(error, |t| explain_failure(t, error));
         let limit = MAX_FAILURES.min(self.state.queue.tracks().len());
         if self.failures >= limit {
             self.failures = 0;
@@ -635,6 +673,20 @@ impl App {
             .error(format!("couldn't play {title:?}: {error}"));
         self.state.queue.advance(false);
         self.start_current();
+    }
+}
+
+/// mpv's reason for a failed track, made useful where we can tell more.
+fn explain_failure<'a>(track: &Track, error: &'a str) -> &'a str {
+    // When yt-dlp gets no audio, mpv tries to play the web page itself. For
+    // YouTube Music signed out, that almost always means the song is only
+    // available to signed-in users.
+    if track.source == Source::Service(ProviderKind::YouTubeMusic)
+        && error == "unrecognized file format"
+    {
+        "YouTube didn't send any audio (some songs need you to sign in)"
+    } else {
+        error
     }
 }
 
@@ -1013,5 +1065,87 @@ mod provider_tests {
         let config = Config::load(&dir.path().join("config.toml")).unwrap();
         let app = App::new(&config, dir.path().join("config.toml")).unwrap();
         assert_eq!(app.state.provider_cursor, 1);
+    }
+
+    /// Enter on YouTube Music switches it on (signed out, so nothing touches
+    /// the network until a search), and again switches back to the demo.
+    #[tokio::test]
+    async fn enter_toggles_youtube_music_and_remembers_it() {
+        let (dir, mut app) = app();
+        let config_path = dir.path().join("config.toml");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.state.active_provider, Some(ProviderKind::YouTubeMusic));
+        assert!(!app.state.is_demo());
+        assert_eq!(app.state.provider_setup, Some(ProviderKind::YouTubeMusic));
+        let status = app.state.status.as_ref().unwrap();
+        assert!(
+            status.text.contains("YouTube Music is on"),
+            "{}",
+            status.text
+        );
+        let saved = std::fs::read_to_string(&config_path).unwrap();
+        assert!(saved.contains("active = \"youtube-music\""), "{saved}");
+        assert!(saved.contains("preset = \"youtube-music\""), "{saved}");
+
+        // Restarting picks it up again.
+        let config = Config::load(&config_path).unwrap();
+        let restarted = App::new(&config, config_path.clone()).unwrap();
+        assert_eq!(restarted.startup_provider, Some(ProviderKind::YouTubeMusic));
+
+        key(&mut app, KeyCode::Esc); // close the setup screen
+        key(&mut app, KeyCode::Enter);
+        assert!(app.state.is_demo());
+        assert_eq!(
+            app.state.provider_setup, None,
+            "turning off shows no screen"
+        );
+        assert_eq!(app.state.library[0].name, "Liked Songs");
+        let saved = std::fs::read_to_string(&config_path).unwrap();
+        assert!(!saved.contains("[providers]"), "{saved}");
+    }
+
+    #[tokio::test]
+    async fn provider_command_switches_and_rejects_unbuilt_ones() {
+        let (_dir, mut app) = app();
+        app.dispatch(Action::Provider(Some(ProviderKind::Spotify)));
+        assert!(app.state.is_demo());
+        assert!(app.status_is_error());
+
+        app.dispatch(Action::Provider(Some(ProviderKind::YouTubeMusic)));
+        assert_eq!(app.state.active_provider, Some(ProviderKind::YouTubeMusic));
+        assert_eq!(
+            app.state.provider_setup, None,
+            "only Enter opens the screen"
+        );
+        app.dispatch(Action::Provider(None));
+        assert!(app.state.is_demo());
+    }
+
+    #[test]
+    fn an_unknown_provider_in_the_config_is_reported_not_fatal() {
+        let dir = tempfile::tempdir().unwrap();
+        let config: Config = toml::from_str("[providers]\nactive = \"napster\"").unwrap();
+        let app = App::new(&config, dir.path().join("config.toml")).unwrap();
+        assert_eq!(app.startup_provider, None);
+        assert!(app.status_is_error());
+    }
+
+    #[test]
+    fn a_youtube_song_that_needs_sign_in_says_so() {
+        let track = |source| Track {
+            id: "x".into(),
+            title: "Song".into(),
+            artist: "Artist".into(),
+            duration: Duration::ZERO,
+            source,
+        };
+        let yt = track(Source::Service(ProviderKind::YouTubeMusic));
+        assert!(explain_failure(&yt, "unrecognized file format").contains("sign in"));
+        assert_eq!(explain_failure(&yt, "network error"), "network error");
+        let file = track(Source::Direct("/tmp/a.txt".into()));
+        assert_eq!(
+            explain_failure(&file, "unrecognized file format"),
+            "unrecognized file format"
+        );
     }
 }
