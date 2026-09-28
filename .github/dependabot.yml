@@ -1,0 +1,31 @@
+# Weekly update PRs for Cargo dependencies and the pinned GitHub Actions.
+# Each one goes through CI like any other PR. The cooldown waits a week after
+# a release before proposing it, so a compromised release is usually caught
+# and yanked before it gets here.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      # Semver-compatible updates land together in one PR.
+      cargo-minor:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
