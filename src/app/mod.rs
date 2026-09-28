@@ -6,6 +6,7 @@ mod mouse;
 pub(crate) mod pointer;
 pub mod queue;
 pub mod settings;
+pub(crate) mod signin;
 pub mod state;
 #[cfg(test)]
 mod testing;
@@ -24,6 +25,8 @@ use futures::StreamExt;
 use ratatui::DefaultTerminal;
 use tokio::sync::{mpsc, watch};
 
+use crate::auth::SecretStore;
+use crate::auth::google::{Endpoints, Session};
 use crate::command::{self, Completion};
 use crate::config::Config;
 use crate::keymap::{KeyPress, KeyResult, Keymap};
@@ -53,6 +56,8 @@ pub enum AppEvent {
     Player(PlayerEvent),
     /// A reply from a provider request (see `library`).
     Provider(ProviderEvent),
+    /// Progress signing in (see `signin`).
+    SignIn(signin::SignInEvent),
 }
 
 pub struct App {
@@ -69,6 +74,18 @@ pub struct App {
     startup_provider: Option<ProviderKind>,
     /// Provider requests waiting for a reply.
     requests: Requests,
+    /// Where secrets are kept: the OS keychain (memory in tests).
+    secrets: Arc<dyn SecretStore>,
+    /// Google's endpoints (a mock server in tests).
+    google_endpoints: Endpoints,
+    /// The user's own Google OAuth client ID, from the config.
+    google_client_id: Option<String>,
+    /// The signed-in YouTube Music session.
+    youtube_session: Option<Arc<Session>>,
+    /// The sign-in task in flight, and its run number: messages from older
+    /// runs are ignored.
+    sign_in_task: Option<tokio::task::AbortHandle>,
+    sign_in_run: u64,
     /// The main loop's event channel, for tasks to report back on.
     events: mpsc::UnboundedSender<AppEvent>,
     /// Its receiving end, until `run` takes it.
@@ -172,6 +189,12 @@ impl App {
             provider: None,
             startup_provider,
             requests: Requests::default(),
+            secrets: default_secret_store(),
+            google_endpoints: Endpoints::default(),
+            google_client_id: config.providers.youtube_music.client_id.clone(),
+            youtube_session: None,
+            sign_in_task: None,
+            sign_in_run: 0,
             events,
             inbox: Some(inbox),
             current_load: None,
@@ -197,12 +220,7 @@ impl App {
             self.mouse_captured = true;
             set_mouse_capture(true);
         }
-        // The provider chosen last time (from the config).
-        if let Some(kind) = self.startup_provider.take()
-            && let Some(provider) = kind.connect()
-        {
-            self.set_provider(Some(provider));
-        }
+        self.resume_provider();
         // Keep startup warnings (bad theme files...) rather than hiding them.
         if self.state.status.is_none() {
             let welcome = match self.state.active_provider {
@@ -334,6 +352,7 @@ impl App {
             AppEvent::Frame => self.on_frame(),
             AppEvent::Player(event) => self.on_player_event(event),
             AppEvent::Provider(event) => self.on_provider_event(event),
+            AppEvent::SignIn(event) => self.on_sign_in_event(event),
         }
     }
 
@@ -346,17 +365,31 @@ impl App {
             self.on_help_key(key);
             return;
         }
+        // An open prompt gets the keys, even over the setup screen (`:login`
+        // asks for the client ID while showing it).
+        if self.state.mode != Mode::Normal {
+            self.on_prompt_key(key);
+            return;
+        }
         if self.state.provider_setup.is_some() {
-            // The setup screen has nothing to do yet but close.
-            if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q')) {
-                self.state.provider_setup = None;
+            // The setup screen closes, or takes a command such as `:login`.
+            match key.code {
+                KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => {
+                    self.state.provider_setup = None;
+                }
+                KeyCode::Char(':') => self.open_command_line(),
+                _ => {}
             }
             return;
         }
-        match self.state.mode {
-            Mode::Normal => self.on_normal_key(key),
-            Mode::Command | Mode::Search | Mode::EditSetting(_) => self.on_prompt_key(key),
-        }
+        self.on_normal_key(key);
+    }
+
+    fn open_command_line(&mut self) {
+        self.keymap.reset();
+        self.state.status = None;
+        self.state.command_line.clear();
+        self.state.mode = Mode::Command;
     }
 
     /// The help overlay captures input: scroll it or close it.
@@ -382,12 +415,7 @@ impl App {
 
     fn on_normal_key(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Char(':') => {
-                self.keymap.reset();
-                self.state.status = None;
-                self.state.command_line.clear();
-                self.state.mode = Mode::Command;
-            }
+            KeyCode::Char(':') => self.open_command_line(),
             KeyCode::Esc => {
                 self.keymap.reset();
                 self.state.status = None;
@@ -407,6 +435,7 @@ impl App {
         let line = match mode {
             Mode::Search => &mut self.state.search_line,
             Mode::EditSetting(_) => &mut self.state.setting_line,
+            Mode::Credential(_) => &mut self.state.credential_line,
             Mode::Normal | Mode::Command => &mut self.state.command_line,
         };
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
@@ -414,6 +443,9 @@ impl App {
             KeyCode::Esc => {
                 line.clear();
                 self.state.mode = Mode::Normal;
+                if let Mode::Credential(_) = mode {
+                    self.state.info("Sign-in cancelled");
+                }
             }
             KeyCode::Backspace if line.is_empty() => self.state.mode = Mode::Normal,
             KeyCode::Backspace => line.backspace(),
@@ -434,10 +466,15 @@ impl App {
             },
             KeyCode::Char(c) if !ctrl => line.insert(c),
             KeyCode::Enter => {
-                let text = line.submit();
+                // Sign-in details stay out of the prompt history.
+                let text = match mode {
+                    Mode::Credential(_) => line.take(),
+                    _ => line.submit(),
+                };
                 self.state.mode = Mode::Normal;
                 let query = text.trim();
                 match mode {
+                    Mode::Credential(field) => self.submit_credential(field, &text),
                     Mode::EditSetting(row) => self.submit_setting(row, &text),
                     _ if query.is_empty() => {}
                     Mode::Search => self.dispatch(Action::Search(query.to_string())),
@@ -534,6 +571,14 @@ fn provider_hints(keymap: &Keymap) -> Vec<Hint> {
     .collect()
 }
 
+/// The OS keychain; tests get an in-memory store so they never touch it.
+fn default_secret_store() -> Arc<dyn SecretStore> {
+    #[cfg(test)]
+    return Arc::new(crate::auth::MemoryStore::default());
+    #[cfg(not(test))]
+    Arc::new(crate::auth::Keychain)
+}
+
 /// The demo library, for UI tests.
 #[cfg(test)]
 pub(crate) fn demo_library() -> Vec<crate::provider::Playlist> {
@@ -541,6 +586,17 @@ pub(crate) fn demo_library() -> Vec<crate::provider::Playlist> {
 }
 
 impl App {
+    /// Switches to the provider chosen last time (from the config), picking
+    /// up its saved sign-in.
+    fn resume_provider(&mut self) {
+        if let Some(kind) = self.startup_provider.take()
+            && let Some(provider) = kind.connect()
+        {
+            self.set_provider(Some(provider));
+            self.restore_sign_in();
+        }
+    }
+
     /// How to search: `press /`, or the command if unbound.
     pub(super) fn search_hint(&self) -> String {
         match self.keymap.key_for("search") {

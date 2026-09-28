@@ -13,8 +13,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 
 use super::logos::{Logo, Pixel};
+use super::text::spinner;
 use super::theme::Theme;
-use crate::app::state::AppState;
+use crate::app::signin::time_left;
+use crate::app::state::{AppState, SignIn};
 use crate::provider::ProviderKind;
 
 /// Logo sizes to try, in pixels (a pixel is half a cell tall).
@@ -279,8 +281,12 @@ fn draw_logo(buf: &mut Buffer, area: Rect, logo: &Logo, lift: usize, theme: &The
 /// `on` (in use), `off` (available) or where it is on the roadmap.
 fn status_span(kind: ProviderKind, state: &AppState, theme: &Theme) -> Span<'static> {
     if state.active_provider == Some(kind) {
+        let label = match state.sign_in {
+            SignIn::SignedIn { .. } => "signed in",
+            _ => "on",
+        };
         Span::styled(
-            "on",
+            label,
             Style::new()
                 .fg(brand(kind, theme))
                 .add_modifier(Modifier::BOLD),
@@ -296,36 +302,82 @@ fn status_line(kind: ProviderKind, state: &AppState, theme: &Theme) -> Line<'sta
     Line::from(status_span(kind, state, theme))
 }
 
-/// What the setup screen says: how to use a provider that's on, or what
-/// one that isn't built yet will need.
-fn setup_text(kind: ProviderKind, state: &AppState) -> Vec<Line<'static>> {
-    if state.active_provider == Some(kind) {
+/// What the setup screen says: how to use a provider that's on (and where
+/// signing in has got to), or what one that isn't built yet will need.
+fn setup_text(kind: ProviderKind, state: &AppState, theme: &Theme) -> Vec<Line<'static>> {
+    if state.active_provider != Some(kind) {
         return vec![
+            Line::from(format!(
+                "Setup for {} isn't available yet ({}).",
+                kind.name(),
+                kind.status()
+            )),
+            Line::from(kind.requirement()),
+            Line::from(""),
+            Line::from(
+                "Your sign-in will stay on this computer, in the system keychain, \
+                 never in Shellify's config file.",
+            ),
+        ];
+    }
+    let strong = Style::new()
+        .fg(brand(kind, theme))
+        .add_modifier(Modifier::BOLD);
+    let muted = Style::new().fg(theme.muted);
+    let mut lines = match &state.sign_in {
+        SignIn::SignedOut => vec![
             Line::from(format!(
                 "{} is on. Search with / and play any song, no account needed.",
                 kind.name()
             )),
-            Line::from(kind.requirement()),
             Line::from(""),
-            Line::from(format!(
+            Line::from("To see your playlists and liked songs, sign in: run :login."),
+            Line::styled(
+                "Read-only access, with your own Google client (see the README). \
+                 Revoke it any time at myaccount.google.com/permissions.",
+                muted,
+            ),
+        ],
+        SignIn::Working(what) => vec![Line::from(format!(
+            "{} {what}{}",
+            spinner(theme.icons.spinner),
+            theme.icons.ellipsis
+        ))],
+        SignIn::Code { url, code, expires } => vec![
+            Line::from("On any device, go to"),
+            Line::styled(url.clone(), strong),
+            Line::from("and enter the code"),
+            Line::styled(code.clone(), strong),
+            Line::from(""),
+            Line::styled(
+                format!(
+                    "{} Waiting for you to approve (code expires in {}). \
+                     Esc hides this; sign-in carries on.",
+                    spinner(theme.icons.spinner),
+                    time_left(*expires)
+                ),
+                muted,
+            ),
+        ],
+        SignIn::SignedIn { account } => vec![
+            Line::from(match account {
+                Some(name) => format!("Signed in as {name}."),
+                None => "Signed in with your Google account.".to_string(),
+            }),
+            Line::from("Search with / and play any song. :logout signs out."),
+        ],
+    };
+    lines.extend([
+        Line::from(""),
+        Line::styled(
+            format!(
                 "To go back to the demo tracks, press Enter on {} again, or run :provider off.",
                 kind.name()
-            )),
-        ];
-    }
-    vec![
-        Line::from(format!(
-            "Setup for {} isn't available yet ({}).",
-            kind.name(),
-            kind.status()
-        )),
-        Line::from(kind.requirement()),
-        Line::from(""),
-        Line::from(
-            "Your sign-in will stay on this computer, in the system keychain, \
-             never in Shellify's config file.",
+            ),
+            muted,
         ),
-    ]
+    ]);
+    lines
 }
 
 /// The setup screen for `kind`, over everything else. Returns its area (a
@@ -343,7 +395,7 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
         ),
         Line::from(""),
     ];
-    lines.extend(setup_text(kind, state));
+    lines.extend(setup_text(kind, state, theme));
     lines.extend([
         Line::from(""),
         Line::styled(

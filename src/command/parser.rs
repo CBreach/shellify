@@ -22,6 +22,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         "Move focus to a pane",
     ),
     cmd("help", "help", "Show this help"),
+    cmd(
+        "login",
+        "login",
+        "Sign in to YouTube Music with your Google account",
+    ),
+    cmd("logout", "logout", "Sign out of YouTube Music"),
     cmd("next", "next", "Next track"),
     cmd("open", "open <url|path>", "Play a URL or local file"),
     cmd("pause", "pause", "Toggle pause"),
@@ -106,6 +112,13 @@ pub fn parse(input: &str) -> Result<Action, String> {
         "help" => no_arg(Action::Help),
         "settings" => no_arg(Action::View(View::Settings)),
         "providers" => no_arg(Action::View(View::Providers)),
+        "login" | "logout" => {
+            match ProviderKind::from_id(if arg.is_empty() { "youtube-music" } else { arg }) {
+                Some(ProviderKind::YouTubeMusic) if name == "login" => Ok(Action::Login),
+                Some(ProviderKind::YouTubeMusic) => Ok(Action::Logout),
+                _ => Err(format!("{name}: only youtube-music has sign-in so far")),
+            }
+        }
         "provider" => match arg {
             "off" | "demo" => Ok(Action::Provider(None)),
             _ => ProviderKind::from_id(arg)
@@ -398,6 +411,10 @@ mod tests {
             parse("provider youtube-music"),
             Ok(Action::Provider(Some(ProviderKind::YouTubeMusic)))
         );
+        assert_eq!(parse("login"), Ok(Action::Login));
+        assert_eq!(parse("login ytmusic"), Ok(Action::Login));
+        assert_eq!(parse("logout"), Ok(Action::Logout));
+        assert!(parse("login spotify").is_err());
         assert_eq!(parse("provider off"), Ok(Action::Provider(None)));
         assert!(parse("provider").is_err());
         assert!(parse("provider napster").is_err());

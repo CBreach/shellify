@@ -29,6 +29,16 @@ pub struct Config {
 pub struct ProvidersConfig {
     /// The provider in use (e.g. `youtube-music`); none means the demo library.
     pub active: Option<String>,
+    #[serde(rename = "youtube-music")]
+    pub youtube_music: GoogleClientConfig,
+}
+
+/// `[providers.youtube-music]`: the user's own Google OAuth client. The
+/// client secret is kept in the keychain, not here.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct GoogleClientConfig {
+    pub client_id: Option<String>,
 }
 
 /// `[ui]`: display options that aren't colors.
@@ -132,6 +142,37 @@ pub fn save_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
 pub fn save_provider(path: &Path, id: Option<&str>) -> Result<()> {
     let mut doc = read_doc(path)?;
     set_table(&mut doc, "providers", &[("active", id.map(Value::from))]);
+    write_doc(path, &doc)
+}
+
+/// Saves the Google OAuth client ID to `[providers.youtube-music]`
+/// (`None` removes it).
+pub fn save_google_client_id(path: &Path, id: Option<&str>) -> Result<()> {
+    let mut doc = read_doc(path)?;
+    let providers = doc
+        .entry("providers")
+        .or_insert(toml_edit::table())
+        .as_table_mut()
+        .context("[providers] isn't a table")?;
+    // No bare `[providers]` header when it only holds the subtable.
+    providers.set_implicit(true);
+    let google = providers
+        .entry("youtube-music")
+        .or_insert(toml_edit::table())
+        .as_table_mut()
+        .context("[providers.youtube-music] isn't a table")?;
+    match id {
+        Some(id) => google["client_id"] = toml_edit::value(id),
+        None => {
+            google.remove("client_id");
+        }
+    }
+    if google.is_empty() {
+        providers.remove("youtube-music");
+    }
+    if providers.is_empty() {
+        doc.remove("providers");
+    }
     write_doc(path, &doc)
 }
 
@@ -265,6 +306,29 @@ mod tests {
         let saved = std::fs::read_to_string(&path).unwrap();
         assert!(!saved.contains("[providers]"), "{saved}");
         assert!(Config::load(&path).unwrap().providers.active.is_none());
+    }
+
+    #[test]
+    fn saves_the_google_client_id_next_to_the_active_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        save_google_client_id(&path, Some("fake-id.apps.googleusercontent.com")).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("[providers.youtube-music]"), "{saved}");
+        assert!(!saved.contains("[providers]\n"), "no empty header: {saved}");
+
+        save_provider(&path, Some("youtube-music")).unwrap();
+        let loaded = Config::load(&path).unwrap();
+        assert_eq!(loaded.providers.active.as_deref(), Some("youtube-music"));
+        assert_eq!(
+            loaded.providers.youtube_music.client_id.as_deref(),
+            Some("fake-id.apps.googleusercontent.com")
+        );
+
+        save_provider(&path, None).unwrap();
+        save_google_client_id(&path, None).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(!saved.contains("providers"), "{saved}");
     }
 
     #[test]

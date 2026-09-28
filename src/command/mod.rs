@@ -74,6 +74,13 @@ impl LineEditor {
         self.buffer = text;
     }
 
+    /// Takes the current line without recording it (for secrets).
+    pub fn take(&mut self) -> String {
+        self.cursor = 0;
+        self.history_pos = None;
+        std::mem::take(&mut self.buffer)
+    }
+
     /// Takes the current line, recording it in history.
     pub fn submit(&mut self) -> String {
         let line = std::mem::take(&mut self.buffer);
