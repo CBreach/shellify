@@ -70,6 +70,8 @@ pub struct Icons {
     pub viz_shade: [&'static str; 3],
     /// Whether braille dots (smooth wave and dots styles) can be used.
     pub braille: bool,
+    /// Whether block glyphs (`█ ▀ ▄`) can be used, e.g. for QR codes.
+    pub blocks: bool,
     pub border: border::Set<'static>,
     /// Border for the focused pane when there is no color to mark it.
     pub border_focus: border::Set<'static>,
@@ -96,6 +98,7 @@ const UNICODE: Icons = Icons {
     viz_mark: "•",
     viz_shade: ["░", "▒", "▓"],
     braille: true,
+    blocks: true,
     border: border::ROUNDED,
     border_focus: border::THICK,
 };
@@ -132,6 +135,7 @@ const ASCII: Icons = Icons {
     viz_mark: "*",
     viz_shade: [".", ":", "+"],
     braille: false,
+    blocks: false,
     border: ASCII_BORDER,
     border_focus: border::Set {
         top_left: "#",

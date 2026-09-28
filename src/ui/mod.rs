@@ -7,6 +7,7 @@ mod library;
 mod logos;
 mod now_playing;
 mod providers;
+mod qr;
 mod queue;
 mod settings;
 mod text;
@@ -338,7 +339,7 @@ mod tests {
         let screen = render_state(&mut mouse_state, 100, 30, &theme);
         assert!(screen.is_ascii(), "grips and hover highlight are ascii too");
         mouse_state.help_open = true;
-        let screen = render_state(&mut mouse_state, 100, 40, &theme);
+        let screen = render_state(&mut mouse_state, 100, 50, &theme);
         assert!(
             screen.contains("drag a pane border (<>)"),
             "help names the pack's grip"
@@ -464,6 +465,48 @@ mod tests {
         let screen = render_state(&mut state, 100, 30, &Theme::default());
         assert!(screen.contains("YouTube Music is on"), "{screen}");
         assert!(screen.contains(":provider off"));
+    }
+
+    #[test]
+    fn sign_in_code_and_signed_in_states_render() {
+        use crate::app::state::SignIn;
+        let mut state = AppState::new(Vec::new());
+        state.view = View::Providers;
+        state.active_provider = Some(crate::provider::ProviderKind::YouTubeMusic);
+        state.provider_setup = state.active_provider;
+        state.sign_in = SignIn::Code {
+            url: "https://www.google.com/device".into(),
+            code: "ABCD-EFGH".into(),
+            expires: std::time::Instant::now() + Duration::from_secs(600),
+        };
+        for (w, h) in [(100, 40), (80, 24), (60, 24)] {
+            let screen = render_state(&mut state, w, h, &Theme::default());
+            assert!(screen.contains("ABCD-EFGH"), "{w}x{h}:\n{screen}");
+            assert!(screen.contains("google.com/device"), "{w}x{h}");
+            assert!(
+                screen.contains("\x1b]8;;https://www.google.com/device"),
+                "{w}x{h}: the address is a link"
+            );
+        }
+        // A QR code when there's room (its light quiet zone is solid blocks).
+        let tall = render_state(&mut state, 100, 40, &Theme::default());
+        assert!(tall.contains(&"█".repeat(25)), "QR code shown");
+        assert!(!render_state(&mut state, 80, 24, &Theme::default()).contains(&"█".repeat(25)));
+        let ascii = Theme {
+            icons: icons::IconPack::Ascii.icons(),
+            ..Theme::default()
+        };
+        let screen = render_state(&mut state, 100, 40, &ascii);
+        assert!(!screen.contains('█'), "no QR code without block glyphs");
+        assert!(screen.contains("ABCD-EFGH"));
+        state.sign_in = SignIn::SignedIn {
+            account: Some("Test Listener".into()),
+        };
+        let screen = render_state(&mut state, 100, 40, &Theme::default());
+        assert!(screen.contains("Signed in as Test Listener"));
+        state.provider_setup = None;
+        let screen = render_state(&mut state, 160, 48, &Theme::default());
+        assert!(screen.contains("signed in"), "card says so");
     }
 
     #[test]

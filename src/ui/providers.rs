@@ -13,8 +13,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 
 use super::logos::{Logo, Pixel};
+use super::qr::{self, Qr};
+use super::text::spinner;
 use super::theme::Theme;
-use crate::app::state::AppState;
+use crate::app::signin::time_left;
+use crate::app::state::{AppState, SignIn};
 use crate::provider::ProviderKind;
 
 /// Logo sizes to try, in pixels (a pixel is half a cell tall).
@@ -279,8 +282,12 @@ fn draw_logo(buf: &mut Buffer, area: Rect, logo: &Logo, lift: usize, theme: &The
 /// `on` (in use), `off` (available) or where it is on the roadmap.
 fn status_span(kind: ProviderKind, state: &AppState, theme: &Theme) -> Span<'static> {
     if state.active_provider == Some(kind) {
+        let label = match state.sign_in {
+            SignIn::SignedIn { .. } => "signed in",
+            _ => "on",
+        };
         Span::styled(
-            "on",
+            label,
             Style::new()
                 .fg(brand(kind, theme))
                 .add_modifier(Modifier::BOLD),
@@ -296,36 +303,85 @@ fn status_line(kind: ProviderKind, state: &AppState, theme: &Theme) -> Line<'sta
     Line::from(status_span(kind, state, theme))
 }
 
-/// What the setup screen says: how to use a provider that's on, or what
-/// one that isn't built yet will need.
-fn setup_text(kind: ProviderKind, state: &AppState) -> Vec<Line<'static>> {
-    if state.active_provider == Some(kind) {
+/// What the setup screen says: how to use a provider that's on (and where
+/// signing in has got to), or what one that isn't built yet will need.
+fn setup_text(kind: ProviderKind, state: &AppState, theme: &Theme) -> Vec<Line<'static>> {
+    if state.active_provider != Some(kind) {
         return vec![
+            Line::from(format!(
+                "Setup for {} isn't available yet ({}).",
+                kind.name(),
+                kind.status()
+            )),
+            Line::from(kind.requirement()),
+            Line::from(""),
+            Line::from(
+                "Your sign-in will stay on this computer, in the system keychain, \
+                 never in Shellify's config file.",
+            ),
+        ];
+    }
+    let strong = Style::new()
+        .fg(brand(kind, theme))
+        .add_modifier(Modifier::BOLD);
+    let muted = Style::new().fg(theme.muted);
+    let mut lines = match &state.sign_in {
+        SignIn::SignedOut => vec![
             Line::from(format!(
                 "{} is on. Search with / and play any song, no account needed.",
                 kind.name()
             )),
-            Line::from(kind.requirement()),
             Line::from(""),
-            Line::from(format!(
+            Line::from("To see your playlists and liked songs, sign in: run :login."),
+            Line::styled(
+                "Read-only access, with your own Google client (see the README). \
+                 Revoke it any time at myaccount.google.com/permissions.",
+                muted,
+            ),
+        ],
+        SignIn::Working(what) => vec![Line::from(format!(
+            "{} {what}{}",
+            spinner(theme.icons.spinner),
+            theme.icons.ellipsis
+        ))],
+        // Nothing else: the QR code above needs the room.
+        SignIn::Code { url, code, expires } => {
+            return vec![
+                Line::from("Scan the code with your phone, or open"),
+                Line::styled(url.clone(), strong),
+                Line::from("(click it, or press o) and enter"),
+                Line::styled(code.clone(), strong),
+                Line::from(""),
+                Line::styled(
+                    format!(
+                        "{} Waiting for you to approve (expires in {}). \
+                         Esc hides this; sign-in carries on.",
+                        spinner(theme.icons.spinner),
+                        time_left(*expires)
+                    ),
+                    muted,
+                ),
+            ];
+        }
+        SignIn::SignedIn { account } => vec![
+            Line::from(match account {
+                Some(name) => format!("Signed in as {name}."),
+                None => "Signed in with your Google account.".to_string(),
+            }),
+            Line::from("Search with / and play any song. :logout signs out."),
+        ],
+    };
+    lines.extend([
+        Line::from(""),
+        Line::styled(
+            format!(
                 "To go back to the demo tracks, press Enter on {} again, or run :provider off.",
                 kind.name()
-            )),
-        ];
-    }
-    vec![
-        Line::from(format!(
-            "Setup for {} isn't available yet ({}).",
-            kind.name(),
-            kind.status()
-        )),
-        Line::from(kind.requirement()),
-        Line::from(""),
-        Line::from(
-            "Your sign-in will stay on this computer, in the system keychain, \
-             never in Shellify's config file.",
+            ),
+            muted,
         ),
-    ]
+    ]);
+    lines
 }
 
 /// The setup screen for `kind`, over everything else. Returns its area (a
@@ -343,17 +399,24 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
         ),
         Line::from(""),
     ];
-    lines.extend(setup_text(kind, state));
-    lines.extend([
-        Line::from(""),
-        Line::styled(
-            format!(
-                "Theme switched to {}. Change it any time in Settings.",
-                kind.name()
+    lines.extend(setup_text(kind, state, theme));
+    // While signing in, a QR code for the sign-in page takes the logo's place.
+    let sign_in_url = match &state.sign_in {
+        SignIn::Code { url, .. } if state.active_provider == Some(kind) => Some(url.as_str()),
+        _ => None,
+    };
+    if sign_in_url.is_none() {
+        lines.extend([
+            Line::from(""),
+            Line::styled(
+                format!(
+                    "Theme switched to {}. Change it any time in Settings.",
+                    kind.name()
+                ),
+                muted,
             ),
-            muted,
-        ),
-    ]);
+        ]);
+    }
     let text_rows: u16 = lines
         .iter()
         .map(|l| wrapped_rows(&l.to_string(), usize::from(text_width)))
@@ -361,11 +424,23 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
     // Borders plus a blank row above and below the text.
     let bare = text_rows + 4;
     let room = screen.height.saturating_sub(2);
+    let qr = sign_in_url
+        .filter(|_| theme.icons.blocks)
+        .and_then(Qr::new)
+        .filter(|qr| {
+            let (w, h) = qr.size();
+            bare + h < room && width >= w + 4
+        });
     let logo = SETUP_LOGOS
         .into_iter()
+        .filter(|_| sign_in_url.is_none())
         .find(|&size| bare + size as u16 / 2 < room && width >= size as u16 + 4);
-    let logo_rows = logo.map_or(0, |size| size as u16 / 2 + 1);
-    let height = (bare + logo_rows).min(room);
+    let art_rows = match (&qr, logo) {
+        (Some(qr), _) => qr.size().1 + 1,
+        (None, Some(size)) => size as u16 / 2 + 1,
+        (None, None) => 0,
+    };
+    let height = (bare + art_rows).min(room);
 
     let [row] = Layout::vertical([Constraint::Length(height)])
         .flex(Flex::Center)
@@ -373,14 +448,15 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
     let [popup] = Layout::horizontal([Constraint::Length(width)])
         .flex(Flex::Center)
         .areas(row);
+    let keys = if sign_in_url.is_some() {
+        format!(" o open link {} esc hide ", theme.icons.sep)
+    } else {
+        format!(" esc close {} enter ok ", theme.icons.sep)
+    };
     let block = Block::bordered()
         .border_set(theme.icons.border)
         .border_style(Style::new().fg(color))
-        .title_bottom(
-            Line::from(format!(" esc close {} enter ok ", theme.icons.sep))
-                .style(muted)
-                .right_aligned(),
-        );
+        .title_bottom(Line::from(keys).style(muted).right_aligned());
     let inner = block.inner(popup);
     frame.render_widget(Clear, popup);
     frame.render_widget(block, popup);
@@ -391,12 +467,23 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
         y: inner.y + 1,
         height: inner.height.saturating_sub(1),
     };
-    if let Some(size) = logo {
+    if let Some(qr) = &qr {
+        let (w, h) = qr.size();
+        let area = Rect::new(
+            inner.x + inner.width.saturating_sub(w) / 2,
+            inner.y + 1,
+            w,
+            h,
+        );
+        qr.render(frame.buffer_mut(), area.intersection(inner), !theme.mono);
+        text_area.y = area.bottom() + 1;
+        text_area.height = inner.bottom().saturating_sub(text_area.y);
+    } else if let Some(size) = logo {
         let logo_area = Rect::new(
             inner.x + inner.width.saturating_sub(size as u16) / 2,
             inner.y,
             size as u16,
-            logo_rows,
+            art_rows,
         );
         let logo = Logo::new(kind, size);
         draw_logo(
@@ -415,6 +502,9 @@ pub fn draw_setup(frame: &mut Frame, state: &AppState, theme: &Theme, kind: Prov
             .wrap(Wrap { trim: true }),
         text_area,
     );
+    if let Some(url) = sign_in_url {
+        qr::link(frame.buffer_mut(), text_area, url);
+    }
     popup
 }
 

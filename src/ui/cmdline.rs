@@ -17,6 +17,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
             format!("{} = ", row.color_key().unwrap_or("value")),
             &state.setting_line,
         ),
+        Mode::Credential(field) => (field.prompt().to_string(), &state.credential_line),
         Mode::Normal => {
             let mode = Span::styled(" NORMAL ", theme.selection());
             // Errors get a symbol as well as color, so they read in monochrome too.
@@ -36,7 +37,13 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, theme: &Theme) {
         }
     };
 
-    frame.render_widget(Line::from(format!("{prefix}{}", editor.text())), area);
+    let text = match state.mode {
+        // Secrets show as one `*` per character, so a paste can be checked
+        // for length without showing it.
+        Mode::Credential(field) if field.masked() => "*".repeat(editor.text().chars().count()),
+        _ => editor.text().to_string(),
+    };
+    frame.render_widget(Line::from(format!("{prefix}{text}")), area);
     // Hints such as tab-completion candidates show on the right while typing.
     if let Some(status) = &state.status {
         let hint = Line::from(status.text.clone())

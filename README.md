@@ -4,14 +4,15 @@
 
 Listen to your music from the terminal. Shellify is a keyboard-driven, full-screen TUI with vim-style navigation and a `:` command mode. It connects to your own streaming accounts.
 
-> **Status: early development.** The interface, keys and commands work, and audio plays through mpv. **YouTube Music works signed out**: search it and play songs, no account needed. Sign-in, for your own playlists and liked songs, is next. Until you turn a provider on, Shellify shows a demo library, labelled as such. `:open` plays any URL or local file. The roadmap below lists what's coming.
+> **Status: early development.** The interface, keys and commands work, and audio plays through mpv. **YouTube Music works signed out**: search it and play songs, no account needed. You can sign in with your Google account (read-only); showing your playlists and liked songs is next. Until you turn a provider on, Shellify shows a demo library, labelled as such. `:open` plays any URL or local file. The roadmap below lists what's coming.
 
 ## Roadmap
 
 - [x] TUI skeleton: panes, vim keys, `:` command mode, `/` search, queue, repeat/shuffle, configurable keys
 - [x] Real audio playback through mpv
 - [x] YouTube Music, signed out: search and play
-- [ ] YouTube Music sign-in: your library, playlists and liked songs
+- [x] YouTube Music sign-in (Google, read-only)
+- [ ] YouTube Music library: your playlists and liked songs
 - [ ] Spotify (Premium required for in-terminal playback)
 - [ ] Apple Music (macOS)
 
@@ -83,6 +84,7 @@ Press `:` then type a command. Tab completes command names, and ↑/↓ browse h
 | `:help` | Show the help overlay |
 | `:settings`, `:providers`, `:view <music\|settings\|providers>` | Switch tab |
 | `:provider youtube-music`, `:provider off` | Turn YouTube Music on, or go back to the demo tracks |
+| `:login`, `:logout` | Sign in to (or out of) YouTube Music with your Google account |
 | `:resize library 30`, `:resize queue +5`, `:resize reset` | Set a side pane's width (% of the window) |
 | `:theme <name>`, `:theme import <file>`, `:theme reload` | Switch, import or reload color themes |
 | `:visualizer [on\|off\|next\|bars\|mirror\|wave\|dots]` | Toggle the visualizer or pick its style |
@@ -114,6 +116,24 @@ Press `3` (or `:providers`) to see the streaming services Shellify supports: You
 Signed out, a few songs won't play, because YouTube only serves them to signed-in accounts. Shellify skips them and says why. Sign-in comes next.
 
 Choosing a provider also switches Shellify to that provider's colors: red for YouTube Music, green for Spotify, pink for Apple Music. You can pick another theme in Settings at any time.
+
+### YouTube Music sign-in
+
+Search and playback work without an account. Signing in is for your own playlists and liked songs. Shellify signs in the way TV apps do: it shows a short code, and you approve it on Google's own page. It only asks for **read-only** access to YouTube, never your password, and you can revoke it any time at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
+
+Shellify is open source, so it can't ship a Google client of its own: you create one in your Google account. It's free and takes about five minutes.
+
+1. Open the [Google Cloud console](https://console.cloud.google.com/) and create a project (any name, e.g. `shellify`).
+2. Under **APIs & Services → Library**, find **YouTube Data API v3** and enable it.
+3. Open **Google Auth Platform** (APIs & Services → OAuth consent screen) and click **Get started**. Give the app a name, use your email for the contact fields, and choose **External** as the audience.
+4. Under **Data Access**, add the scope `https://www.googleapis.com/auth/youtube.readonly`.
+5. Under **Audience**, click **Publish app** so its status is **In production**. While it's in *Testing*, Google ends your sign-in after 7 days. Since the app is only yours, Google may show a "Google hasn't verified this app" screen when you sign in: choose **Advanced**, then continue.
+6. Under **Clients**, create a client of type **TVs and Limited Input devices**, and keep its **client ID** and **client secret** at hand.
+7. In Shellify, run `:login`. Paste the client ID, then the client secret. Shellify shows a QR code, a link and a short code: scan the QR code with your phone, or click the link (or press `o` to open it in your browser), then enter the code and approve. It works over SSH too, since the approving happens on another device.
+
+Where things are kept: the client ID in `config.toml` (`[providers.youtube-music] client_id`), and the client secret and your sign-in in the system keychain, never in the config file. `:logout` forgets the sign-in and revokes it with Google; the client stays, so signing in again only takes the code. If Google rejects the client ID or secret, Shellify forgets them and `:login` asks again.
+
+A few songs only play for signed-in accounts. Signing in here doesn't change that: playback goes through yt-dlp, which doesn't use your Google sign-in. Shellify skips those songs and says why.
 
 ### Themes
 

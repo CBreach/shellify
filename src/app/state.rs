@@ -22,6 +22,47 @@ pub enum Mode {
     Search,
     /// Typing a color value for a Settings row.
     EditSetting(SettingRow),
+    /// Typing (or pasting) sign-in details.
+    Credential(Credential),
+}
+
+/// Sign-in details the `:login` prompt asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Credential {
+    /// The user's Google OAuth client ID.
+    ClientId,
+    /// Its client secret: masked, never kept in history.
+    ClientSecret,
+}
+
+impl Credential {
+    pub fn prompt(self) -> &'static str {
+        match self {
+            Self::ClientId => "Google client ID: ",
+            Self::ClientSecret => "Client secret: ",
+        }
+    }
+
+    pub fn masked(self) -> bool {
+        self == Self::ClientSecret
+    }
+}
+
+/// Where signing in to YouTube Music has got to, for the setup screen.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SignIn {
+    #[default]
+    SignedOut,
+    /// Checking a saved sign-in, or asking Google for a code.
+    Working(&'static str),
+    /// Waiting for the user to enter `code` at `url`.
+    Code {
+        url: String,
+        code: String,
+        expires: Instant,
+    },
+    /// `account` is the YouTube channel name, when there is one.
+    SignedIn { account: Option<String> },
 }
 
 #[derive(Debug)]
@@ -166,6 +207,10 @@ pub struct AppState {
     /// What the Settings tab shows and saves; the theme is derived from it.
     pub appearance: Appearance,
     pub setting_line: LineEditor,
+    /// The `:login` prompt's input (never recorded in history).
+    pub credential_line: LineEditor,
+    /// YouTube Music sign-in.
+    pub sign_in: SignIn,
     /// Where settings are saved, for display (`~/.config/...`).
     pub config_path_label: String,
     /// Header tab labels with their keys, e.g. `1 Music`.
@@ -230,6 +275,8 @@ impl AppState {
             settings_cursor: 0,
             appearance: Appearance::default(),
             setting_line: LineEditor::default(),
+            credential_line: LineEditor::default(),
+            sign_in: SignIn::default(),
             config_path_label: String::new(),
             tab_labels: ["Music".into(), "Settings".into(), "Providers".into()],
             provider_cursor: 0,

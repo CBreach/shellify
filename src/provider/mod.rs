@@ -141,7 +141,7 @@ impl ProviderKind {
     /// What signing in will need.
     pub fn requirement(self) -> &'static str {
         match self {
-            Self::YouTubeMusic => "Signing in, for your own playlists, comes later.",
+            Self::YouTubeMusic => "Sign in with :login to see your own playlists.",
             Self::Spotify => "Playback will need a Spotify Premium account.",
             Self::AppleMusic => "Playback will need an Apple Music subscription.",
         }

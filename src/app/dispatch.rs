@@ -61,6 +61,8 @@ impl App {
             Action::Theme(command) => self.theme_command(command),
             Action::Visualizer(command) => self.visualizer_command(command),
             Action::Provider(kind) => self.use_provider(kind),
+            Action::Login => self.login(),
+            Action::Logout => self.logout(),
 
             Action::TogglePause => {
                 if self.state.queue.current().is_some() {
@@ -225,7 +227,7 @@ impl App {
     }
 
     /// Switches to `kind`'s library (`None`: the demo one) and saves it.
-    fn use_provider(&mut self, kind: Option<ProviderKind>) {
+    pub(super) fn use_provider(&mut self, kind: Option<ProviderKind>) {
         if kind == self.state.active_provider {
             let name = kind.map_or("the demo library", ProviderKind::name);
             return self.state.info(format!("Already using {name}"));
@@ -233,6 +235,7 @@ impl App {
         match kind {
             None => {
                 self.set_provider(None);
+                self.drop_sign_in();
                 self.state.info("Back to the demo tracks");
             }
             Some(kind) => {
@@ -243,6 +246,7 @@ impl App {
                         .error(format!("{} isn't available yet ({status})", kind.name()));
                 };
                 self.set_provider(Some(provider));
+                self.restore_sign_in();
                 let search = self.search_hint();
                 self.state
                     .info(format!("{} is on: {search} to search", kind.name()));
@@ -413,7 +417,7 @@ impl App {
         }
     }
 
-    fn status_is_error(&self) -> bool {
+    pub(super) fn status_is_error(&self) -> bool {
         self.state
             .status
             .as_ref()

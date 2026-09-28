@@ -20,6 +20,10 @@ pub enum Action {
     Visualizer(VizCommand),
     /// Use a streaming service, or go back to the demo library (`None`).
     Provider(Option<ProviderKind>),
+    /// Sign in to YouTube Music.
+    Login,
+    /// Sign out of YouTube Music.
+    Logout,
 
     // Playback
     TogglePause,
