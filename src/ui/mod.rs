@@ -239,6 +239,7 @@ mod tests {
             tracks: Some(vec![track.clone()]),
         }]);
         state.queue.play_list(vec![track], 0);
+        state.active_provider = Some(crate::provider::ProviderKind::YouTubeMusic);
         let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
         terminal.draw(|f| draw(f, &mut state, theme)).unwrap();
         let buffer = terminal.backend().buffer();
@@ -403,7 +404,6 @@ mod tests {
     #[test]
     fn demo_library_says_so_and_how_to_add_a_provider() {
         let mut state = AppState::new(crate::app::demo_library());
-        state.demo = true;
         state.providers_key = Some("3".into());
         for theme in [Theme::default(), Theme::default().monochrome()] {
             let screen = render_state(&mut state, 120, 30, &theme);
@@ -418,7 +418,15 @@ mod tests {
             let narrow = render_state(&mut state, 60, 24, &theme);
             assert!(narrow.contains("demo tracks"), "{narrow}");
         }
-        state.demo = false;
+        let ascii = Theme {
+            icons: icons::IconPack::Ascii.icons(),
+            ..Theme::default()
+        };
+        for (w, h) in [(120, 30), (80, 24), (60, 24)] {
+            assert!(render_state(&mut state, w, h, &ascii).is_ascii(), "{w}x{h}");
+        }
+
+        state.active_provider = Some(crate::provider::ProviderKind::YouTubeMusic);
         let screen = render_state(&mut state, 120, 30, &Theme::default());
         assert!(!screen.to_lowercase().contains("demo tracks"));
     }
@@ -426,7 +434,7 @@ mod tests {
     #[test]
     fn loading_library_and_tracks_say_so() {
         let mut state = AppState::new(Vec::new());
-        state.demo = false;
+        state.active_provider = Some(crate::provider::ProviderKind::YouTubeMusic);
         state.library_loading = true;
         state.tracks_title = "Liked".into();
         state.tracks_loading = true;
@@ -439,6 +447,23 @@ mod tests {
             ..Theme::default()
         };
         assert!(render_state(&mut state, 120, 30, &ascii).is_ascii());
+    }
+
+    #[test]
+    fn a_provider_in_use_says_so_on_its_card_and_setup_screen() {
+        let mut state = AppState::new(Vec::new());
+        state.view = View::Providers;
+        state.active_provider = Some(crate::provider::ProviderKind::YouTubeMusic);
+        let screen = render_state(&mut state, 160, 48, &Theme::default());
+        assert!(screen.contains(" on "), "card shows on");
+        assert!(
+            screen.contains("planned"),
+            "Spotify keeps its roadmap status"
+        );
+        state.provider_setup = state.active_provider;
+        let screen = render_state(&mut state, 100, 30, &Theme::default());
+        assert!(screen.contains("YouTube Music is on"), "{screen}");
+        assert!(screen.contains(":provider off"));
     }
 
     #[test]

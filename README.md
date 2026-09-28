@@ -4,13 +4,14 @@
 
 Listen to your music from the terminal. Shellify is a keyboard-driven, full-screen TUI with vim-style navigation and a `:` command mode. It connects to your own streaming accounts.
 
-> **Status: early development.** The interface, keys and commands work, and audio plays through mpv. There's no account sign-in yet. Until you add a provider, Shellify shows a demo library, labelled as such, whose songs play the top YouTube search result; `:open` plays any URL or local file. The roadmap below lists what's coming next.
+> **Status: early development.** The interface, keys and commands work, and audio plays through mpv. **YouTube Music works signed out**: search it and play songs, no account needed. Sign-in, for your own playlists and liked songs, is next. Until you turn a provider on, Shellify shows a demo library, labelled as such. `:open` plays any URL or local file. The roadmap below lists what's coming.
 
 ## Roadmap
 
 - [x] TUI skeleton: panes, vim keys, `:` command mode, `/` search, queue, repeat/shuffle, configurable keys
 - [x] Real audio playback through mpv
-- [ ] YouTube Music: sign in, search, your library, playlists and liked songs
+- [x] YouTube Music, signed out: search and play
+- [ ] YouTube Music sign-in: your library, playlists and liked songs
 - [ ] Spotify (Premium required for in-terminal playback)
 - [ ] Apple Music (macOS)
 
@@ -18,11 +19,11 @@ Listen to your music from the terminal. Shellify is a keyboard-driven, full-scre
 
 - macOS or Linux. Playback controls mpv over a Unix socket, so Windows isn't supported yet.
 - Rust (stable, edition 2024): <https://rustup.rs>
-- [mpv](https://mpv.io) and [yt-dlp](https://github.com/yt-dlp/yt-dlp), both on your `PATH`. Shellify runs mpv in the background; yt-dlp is what lets mpv play YouTube.
+- [mpv](https://mpv.io) and [yt-dlp](https://github.com/yt-dlp/yt-dlp), both on your `PATH`. Shellify runs mpv in the background; yt-dlp is what lets mpv play YouTube. yt-dlp also wants a JavaScript runtime such as [deno](https://deno.com) for YouTube.
 
 ```sh
 # macOS
-brew install mpv yt-dlp
+brew install mpv yt-dlp deno
 # Debian/Ubuntu (distro yt-dlp packages go stale fast; pipx keeps it current)
 sudo apt install mpv pipx && pipx install yt-dlp
 ```
@@ -81,6 +82,7 @@ Press `:` then type a command. Tab completes command names, and ↑/↓ browse h
 | `:queue`, `:focus <pane>` | Jump to a pane |
 | `:help` | Show the help overlay |
 | `:settings`, `:providers`, `:view <music\|settings\|providers>` | Switch tab |
+| `:provider youtube-music`, `:provider off` | Turn YouTube Music on, or go back to the demo tracks |
 | `:resize library 30`, `:resize queue +5`, `:resize reset` | Set a side pane's width (% of the window) |
 | `:theme <name>`, `:theme import <file>`, `:theme reload` | Switch, import or reload color themes |
 | `:visualizer [on\|off\|next\|bars\|mirror\|wave\|dots]` | Toggle the visualizer or pick its style |
@@ -104,7 +106,12 @@ Press `2` (or `:settings`) to open **Settings**. There you can pick a theme pres
 
 ### Providers tab
 
-Press `3` (or `:providers`) to see the streaming services Shellify supports: YouTube Music, Spotify and Apple Music, each with a pixel-art logo. The highlighted one bounces. Move with `h`/`l` (or the arrows, or `j`/`k`), then press `Enter`, or click a card with the mouse on, to open its setup screen. Sign-in isn't built yet, so for now the setup screen tells you what setup will need.
+Press `3` (or `:providers`) to see the streaming services Shellify supports: YouTube Music, Spotify and Apple Music, each with a pixel-art logo. The highlighted one bounces, and each card says whether it's on. Move with `h`/`l` (or the arrows, or `j`/`k`), then press `Enter` (or click a card, with the mouse on):
+
+- **YouTube Music** switches on, signed out: press `/` to search it and `Enter` to play. Press `Enter` on it again (or `:provider off`) to go back to the demo tracks. Shellify remembers your choice (`[providers] active` in `config.toml`).
+- **Spotify** and **Apple Music** aren't built yet; their setup screen says what they'll need.
+
+Signed out, a few songs won't play, because YouTube only serves them to signed-in accounts. Shellify skips them and says why. Sign-in comes next.
 
 Choosing a provider also switches Shellify to that provider's colors: red for YouTube Music, green for Spotify, pink for Apple Music. You can pick another theme in Settings at any time.
 

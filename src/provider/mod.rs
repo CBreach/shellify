@@ -1,10 +1,15 @@
 //! Provider-agnostic music types and the `Provider` trait that each
 //! streaming service implements.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
+
+mod ytmusic;
+
+pub use ytmusic::YouTubeMusic;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Track {
@@ -24,10 +29,6 @@ pub enum Source {
     Demo,
     /// A track from a streaming service; `Track::id` is that service's id,
     /// and the service's provider resolves it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "constructed by the first real provider")
-    )]
     Service(ProviderKind),
     /// A URL or local file the player opens directly (`:open`).
     Direct(String),
@@ -47,10 +48,6 @@ pub struct Playlist {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlaybackSource {
     /// A URL or file for mpv (with yt-dlp for YouTube pages).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "constructed by the first real provider")
-    )]
     Url(String),
 }
 
@@ -104,10 +101,38 @@ impl ProviderKind {
         }
     }
 
+    /// Its name in the config file and `:provider`: the same as its theme's.
+    pub fn id(self) -> &'static str {
+        self.theme()
+    }
+
+    /// Parses an id, or a short alias such as `ytmusic`.
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id.to_ascii_lowercase().as_str() {
+            "youtube-music" | "ytmusic" | "youtube" => Some(Self::YouTubeMusic),
+            "spotify" => Some(Self::Spotify),
+            "apple-music" | "apple" => Some(Self::AppleMusic),
+            _ => None,
+        }
+    }
+
+    /// A provider for it, or `None` while it isn't built yet.
+    pub fn connect(self) -> Option<Arc<dyn Provider>> {
+        match self {
+            Self::YouTubeMusic => Some(Arc::new(YouTubeMusic::default())),
+            Self::Spotify | Self::AppleMusic => None,
+        }
+    }
+
+    /// Whether Shellify can use it yet.
+    pub fn available(self) -> bool {
+        self.connect().is_some()
+    }
+
     /// Where it is on the roadmap.
     pub fn status(self) -> &'static str {
         match self {
-            Self::YouTubeMusic => "coming next",
+            Self::YouTubeMusic => "available",
             Self::Spotify => "planned",
             Self::AppleMusic => "later",
         }
@@ -116,7 +141,7 @@ impl ProviderKind {
     /// What signing in will need.
     pub fn requirement(self) -> &'static str {
         match self {
-            Self::YouTubeMusic => "You'll sign in with your Google account.",
+            Self::YouTubeMusic => "Signing in, for your own playlists, comes later.",
             Self::Spotify => "Playback will need a Spotify Premium account.",
             Self::AppleMusic => "Playback will need an Apple Music subscription.",
         }

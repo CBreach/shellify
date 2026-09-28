@@ -20,6 +20,15 @@ pub struct Config {
     pub keys: HashMap<String, String>,
     pub theme: ThemeConfig,
     pub ui: UiConfig,
+    pub providers: ProvidersConfig,
+}
+
+/// `[providers]`
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ProvidersConfig {
+    /// The provider in use (e.g. `youtube-music`); none means the demo library.
+    pub active: Option<String>,
 }
 
 /// `[ui]`: display options that aren't colors.
@@ -65,14 +74,7 @@ pub fn default_path() -> PathBuf {
 /// rest of the file (key bindings, comments, formatting) untouched. Values
 /// equal to the default are removed rather than written out.
 pub fn save_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
-    };
-    let mut doc: DocumentMut = text
-        .parse()
-        .with_context(|| format!("parsing {}", path.display()))?;
+    let mut doc = read_doc(path)?;
 
     let t = &appearance.theme;
     let theme_values = [
@@ -122,7 +124,30 @@ pub fn save_appearance(path: &Path, appearance: &Appearance) -> Result<()> {
     set_table(&mut doc, "theme", &theme_values);
     set_table(&mut doc, "ui", &ui_values);
 
-    // Write to a temp file and rename, so a crash never leaves a half-written config.
+    write_doc(path, &doc)
+}
+
+/// Saves the provider in use to `[providers] active` (`None` removes it),
+/// leaving the rest of the file untouched.
+pub fn save_provider(path: &Path, id: Option<&str>) -> Result<()> {
+    let mut doc = read_doc(path)?;
+    set_table(&mut doc, "providers", &[("active", id.map(Value::from))]);
+    write_doc(path, &doc)
+}
+
+fn read_doc(path: &Path) -> Result<DocumentMut> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    text.parse()
+        .with_context(|| format!("parsing {}", path.display()))
+}
+
+/// Writes to a temp file and renames it, so a crash never leaves a
+/// half-written config.
+fn write_doc(path: &Path, doc: &DocumentMut) -> Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
     std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     let tmp = path.with_extension("toml.tmp");
@@ -222,6 +247,24 @@ mod tests {
             !saved.contains("[theme]") && !saved.contains("[ui]"),
             "{saved}"
         );
+    }
+
+    #[test]
+    fn saves_and_clears_the_provider_keeping_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "# mine\n[ui]\nmouse = true\n").unwrap();
+
+        save_provider(&path, Some("youtube-music")).unwrap();
+        let loaded = Config::load(&path).unwrap();
+        assert_eq!(loaded.providers.active.as_deref(), Some("youtube-music"));
+        assert!(loaded.ui.mouse);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("# mine"));
+
+        save_provider(&path, None).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(!saved.contains("[providers]"), "{saved}");
+        assert!(Config::load(&path).unwrap().providers.active.is_none());
     }
 
     #[test]

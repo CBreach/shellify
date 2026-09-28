@@ -69,15 +69,11 @@ pub(super) struct Requests {
 
 impl App {
     /// Switches to `provider`'s library, or back to the demo library.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "called once providers can be added")
-    )]
     pub(super) fn set_provider(&mut self, provider: Option<Arc<dyn Provider>>) {
         self.requests.pending.clear();
         self.provider = provider;
         let state = &mut self.state;
-        state.demo = self.provider.is_none();
+        state.active_provider = self.provider.as_ref().map(|p| p.kind());
         state.library_loading = false;
         state.tracks_loading = false;
         state.tracks_title.clear();
@@ -400,12 +396,12 @@ mod tests {
     async fn starts_on_the_demo_library_and_loads_the_providers_instead() {
         let config_path = std::env::temp_dir().join("shellify-test-config.toml");
         let mut app = App::new(&Config::default(), config_path).unwrap();
-        assert!(app.state.demo);
+        assert!(app.state.is_demo());
         assert_eq!(app.state.library[0].name, "Liked Songs");
 
         let provider = Arc::new(FakeProvider::default());
         app.set_provider(Some(provider));
-        assert!(!app.state.demo);
+        assert!(!app.state.is_demo());
         assert!(app.state.library_loading);
         assert!(app.state.library.is_empty());
 
@@ -416,7 +412,7 @@ mod tests {
         assert_eq!(names, ["Liked", "Broken"]);
 
         app.set_provider(None);
-        assert!(app.state.demo);
+        assert!(app.state.is_demo());
         assert_eq!(app.state.library[0].name, "Liked Songs");
     }
 

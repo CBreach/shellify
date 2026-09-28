@@ -109,7 +109,7 @@ impl App {
         if self.state.view == View::Providers {
             // One click opens setup (no double-click needed: a card is a button).
             if let Some(&(_, i)) = hits.providers.iter().find(|(r, _)| r.contains(pos)) {
-                self.open_provider_setup(i);
+                self.choose_provider(i);
             }
             return;
         }

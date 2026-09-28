@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::app::visualizer::VizStyle;
+use crate::provider::ProviderKind;
 
 /// Everything the user can do. Key bindings and `:commands` both resolve to an
 /// `Action`, so every feature is reachable from command mode.
@@ -17,6 +18,8 @@ pub enum Action {
     Theme(ThemeCommand),
     /// Show, hide or restyle the audio visualizer.
     Visualizer(VizCommand),
+    /// Use a streaming service, or go back to the demo library (`None`).
+    Provider(Option<ProviderKind>),
 
     // Playback
     TogglePause,

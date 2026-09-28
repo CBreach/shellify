@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{List, ListItem, Paragraph};
+use ratatui::widgets::{List, ListItem, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr;
 
 use super::text::{spinner, truncate, wrap};
@@ -27,14 +27,19 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
         } else {
             "No playlists yet".to_string()
         };
-        let msg = Paragraph::new(vec![Line::from(""), Line::from(msg)])
-            .alignment(Alignment::Center)
-            .style(Style::new().fg(theme.muted));
+        let msg = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(msg),
+            Line::from("Press / to search"),
+        ])
+        .wrap(Wrap { trim: true })
+        .alignment(Alignment::Center)
+        .style(Style::new().fg(theme.muted));
         frame.render_widget(msg, inner);
         return;
     }
 
-    let list_area = if state.demo {
+    let list_area = if state.is_demo() {
         draw_demo_notice(frame, inner, state, theme)
     } else {
         inner

@@ -65,6 +65,8 @@ pub struct App {
     player: Option<Box<dyn Player>>,
     /// The streaming service in use; `None` shows the demo library.
     provider: Option<Arc<dyn Provider>>,
+    /// The provider saved in the config, switched to once `run` starts.
+    startup_provider: Option<ProviderKind>,
     /// Provider requests waiting for a reply.
     requests: Requests,
     /// The main loop's event channel, for tasks to report back on.
@@ -115,8 +117,6 @@ impl App {
         };
         state.config_path_label = display_path(&config_path);
         state.providers_key = keymap.key_for("view providers");
-        // Until a provider is added (see `App::set_provider`).
-        state.demo = true;
         let (user_themes, problems) = themes::load_dir(&themes::themes_dir(&config_path));
         state.user_themes = user_themes;
         if !problems.is_empty() {
@@ -155,6 +155,13 @@ impl App {
             config.ui.icons,
             &state.user_themes,
         )?;
+        let startup_provider = config.providers.active.as_deref().and_then(|id| {
+            let kind = ProviderKind::from_id(id).filter(|k| k.available());
+            if kind.is_none() {
+                state.error(format!("Can't use provider {id:?} from the config"));
+            }
+            kind
+        });
         let (events, inbox) = mpsc::unbounded_channel();
         Ok(Self {
             state,
@@ -163,6 +170,7 @@ impl App {
             config_path,
             player: None,
             provider: None,
+            startup_provider,
             requests: Requests::default(),
             events,
             inbox: Some(inbox),
@@ -189,15 +197,24 @@ impl App {
             self.mouse_captured = true;
             set_mouse_capture(true);
         }
+        // The provider chosen last time (from the config).
+        if let Some(kind) = self.startup_provider.take()
+            && let Some(provider) = kind.connect()
+        {
+            self.set_provider(Some(provider));
+        }
         // Keep startup warnings (bad theme files...) rather than hiding them.
         if self.state.status.is_none() {
-            let welcome = if self.state.demo {
-                format!(
+            let welcome = match self.state.active_provider {
+                None => format!(
                     "Welcome! {} to add a provider, ? for help",
                     capitalize(&providers_hint(&self.state))
-                )
-            } else {
-                "Welcome to Shellify! Press ? for help".to_string()
+                ),
+                Some(kind) => format!(
+                    "Welcome! {} to search {}, ? for help",
+                    capitalize(&self.search_hint()),
+                    kind.name()
+                ),
             };
             self.state.info(welcome);
         }
@@ -509,7 +526,7 @@ fn settings_hints(keymap: &Keymap) -> Vec<Hint> {
 fn provider_hints(keymap: &Keymap) -> Vec<Hint> {
     [
         ("focus next", "next"),
-        ("play", "set up"),
+        ("play", "choose"),
         ("view music", "music"),
     ]
     .iter()
@@ -521,6 +538,16 @@ fn provider_hints(keymap: &Keymap) -> Vec<Hint> {
 #[cfg(test)]
 pub(crate) fn demo_library() -> Vec<crate::provider::Playlist> {
     demo::library()
+}
+
+impl App {
+    /// How to search: `press /`, or the command if unbound.
+    pub(super) fn search_hint(&self) -> String {
+        match self.keymap.key_for("search") {
+            Some(key) => format!("press {key}"),
+            None => "run :search".to_string(),
+        }
+    }
 }
 
 /// How to get to the Providers tab: `press 3`, or the command if unbound.
